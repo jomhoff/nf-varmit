@@ -112,13 +112,10 @@ process index_bam  {
 
 process bwa_map {
 
-/*
- * Map reads with bwa-mem to a given reference and produce a sorted, indexed BAM.
- */
-
-    tag "BWA-MEM mapping"
+    label 'Mapping'
+    tag   "BWA-MEM mapping"
     publishDir "${params.outputdir}/00.bam/${individual}", mode: 'copy'
-    label 'Endurance'
+
 
     input:
     tuple val(individual), path(read1), path(read2), path(reference)
