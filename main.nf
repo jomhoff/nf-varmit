@@ -15,7 +15,7 @@ log.info """\
         |
         |Sex chromos  : ${params.sex_chromos}
         |
-        |Rounds of mapping/consensus : 4  (hard-coded)
+        |Rounds of mapping/consensus : ${params.n_rounds ?: 4}
         |
         |Obtain coverage stats?         : ${params.calc_coverage}
         |Call variants by individual?   : ${params.indiv_var_call}
@@ -71,9 +71,12 @@ if( !ref_file_obj.exists() ) {
 ref_ch = Channel.value(ref_file_obj)
 
 /*
- * Hard-code 4 rounds
+ * Number of iterative rounds (1–4)
  */
-params.n_rounds = 4
+params.n_rounds = (params.n_rounds ? params.n_rounds.toInteger() : 4)
+if( params.n_rounds < 1 || params.n_rounds > 4 ) {
+    error "params.n_rounds must be between 1 and 4 (got: ${params.n_rounds})"
+}
 
 /*
 ===============================
@@ -99,8 +102,6 @@ process index_bam {
 
 /*
  * BWA mapping processes (per round)
- * Use val(...) for reads and reference; we point bwa/samtools directly
- * to the original absolute paths instead of staging them as Nextflow paths.
  */
 
 process bwa_map_R1 {
@@ -977,6 +978,8 @@ def ref_for_round = { ch ->
 
 workflow {
 
+    def rounds = params.n_rounds as int
+
     /*
      * Round 1
      */
@@ -1071,346 +1074,376 @@ workflow {
     }
 
     // Build per-individual references for Round 2
-    def grouped_R1_ch = consensus_R1_ch.groupTuple(by: 0)
-    def next_ref_input_R1_ch = grouped_R1_ch.map { row ->
-        def indiv     = row[0]
-        def cons_list = row[2].flatten()
-        tuple(indiv, 2, cons_list)
-    }
-    def built_ref_R1_ch = build_ref_from_consensus_R1(next_ref_input_R1_ch)
-    def indiv_ref_R2_ch = built_ref_R1_ch.map { row ->
-        def indiv = row[0]
-        def ref   = row[2]
-        tuple(indiv, ref)
+    def indiv_ref_R2_ch = null
+    if (rounds >= 2) {
+        def grouped_R1_ch = consensus_R1_ch.groupTuple(by: 0)
+        def next_ref_input_R1_ch = grouped_R1_ch.map { row ->
+            def indiv     = row[0]
+            def cons_list = row[2].flatten()
+            tuple(indiv, 2, cons_list)
+        }
+        def built_ref_R1_ch = build_ref_from_consensus_R1(next_ref_input_R1_ch)
+        indiv_ref_R2_ch = built_ref_R1_ch.map { row ->
+            def indiv = row[0]
+            def ref   = row[2]
+            tuple(indiv, ref)
+        }
     }
 
     /*
      * Round 2
      */
-
-    log.info "===================================="
-    log.info "      ITERATIVE ROUND 2"
-    log.info "===================================="
-
-    def map_input_R2_ch = reads_ch
-        .combine(indiv_ref_R2_ch, by: 0)
-        .map { pair ->
-            def left  = pair[0]
-            def right = pair[1]
-            def indiv = left[0]
-            def r1    = left[1]
-            def r2    = left[2]
-            def ref   = right[1]
-            tuple(indiv, r1, r2, ref)
-        }
-
-    def bam_R2_ch = bwa_map_R2(map_input_R2_ch)
-
-    def bam_R2_chromo_ch = bam_R2_ch.combine(chromos_ch)
-
-    def bam_R2_chromo_ref_ch = bam_R2_chromo_ch
-        .combine(indiv_ref_R2_ch, by: 0)
-        .map { pair ->
-            def left  = pair[0]
-            def right = pair[1]
-            def indiv  = left[0]
-            def bam    = left[1]
-            def bai    = left[2]
-            def chromo = left[3]
-            def ref    = right[1]
-            tuple(indiv, bam, bai, chromo, ref)
-        }
-
-    // Variants R2
-    def vars_filt_R2_ch
-    if (params.indiv_var_call && params.filt_indels) {
-        vars_filt_R2_ch = call_variants_CHROMO_R2(bam_R2_chromo_ref_ch) | remove_indels_R2
-    } else if (params.indiv_var_call && !params.filt_indels) {
-        vars_filt_R2_ch = call_variants_CHROMO_R2(bam_R2_chromo_ref_ch)
-    } else {
-        vars_filt_R2_ch = Channel.empty()
-    }
-
-    // Masks R2
-    def mask_R2_fn_ch = null
-    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
-        def mask_het_R2_ch  = vars_filt_R2_ch | mask_hets_R2
-        def mask_cov_R2_ch  = mask_cov_R2(bam_R2_chromo_ref_ch)
-        def mask_comb_R2_ch = mask_het_R2_ch.combine(mask_cov_R2_ch, by: [0,1])
-        mask_R2_fn_ch = mask_merge_R2(mask_comb_R2_ch)
-    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
-        mask_R2_fn_ch = vars_filt_R2_ch | mask_hets_R2
-    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
-        mask_R2_fn_ch = mask_cov_R2(bam_R2_chromo_ref_ch)
-    }
-
-    // Consensus R2
     def consensus_R2_ch = null
-    if (params.indiv_var_call && params.call_consensus) {
+    def indiv_ref_R3_ch = null
 
-        def ref_R2_for_round_ch = ref_for_round(bam_R2_chromo_ref_ch)
+    if (rounds >= 2) {
+        log.info "===================================="
+        log.info "      ITERATIVE ROUND 2"
+        log.info "===================================="
 
-        if (params.mask_hets || params.mask_cov) {
-            def vars_mask_R2_ch = vars_filt_R2_ch.combine(mask_R2_fn_ch, by: [0,1])
-            def vars_mask_ref_R2_ch = vars_mask_R2_ch
-                .combine(ref_R2_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def mask   = left[3]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, mask, ref)
-                }
-            consensus_R2_ch = call_consensus_MASK_R2(vars_mask_ref_R2_ch)
+        def map_input_R2_ch = reads_ch
+            .combine(indiv_ref_R2_ch, by: 0)
+            .map { pair ->
+                def left  = pair[0]
+                def right = pair[1]
+                def indiv = left[0]
+                def r1    = left[1]
+                def r2    = left[2]
+                def ref   = right[1]
+                tuple(indiv, r1, r2, ref)
+            }
+
+        def bam_R2_ch = bwa_map_R2(map_input_R2_ch)
+
+        def bam_R2_chromo_ch = bam_R2_ch.combine(chromos_ch)
+
+        def bam_R2_chromo_ref_ch = bam_R2_chromo_ch
+            .combine(indiv_ref_R2_ch, by: 0)
+            .map { pair ->
+                def left  = pair[0]
+                def right = pair[1]
+                def indiv  = left[0]
+                def bam    = left[1]
+                def bai    = left[2]
+                def chromo = left[3]
+                def ref    = right[1]
+                tuple(indiv, bam, bai, chromo, ref)
+            }
+
+        // Variants R2
+        def vars_filt_R2_ch
+        if (params.indiv_var_call && params.filt_indels) {
+            vars_filt_R2_ch = call_variants_CHROMO_R2(bam_R2_chromo_ref_ch) | remove_indels_R2
+        } else if (params.indiv_var_call && !params.filt_indels) {
+            vars_filt_R2_ch = call_variants_CHROMO_R2(bam_R2_chromo_ref_ch)
         } else {
-            def vcf_ref_R2_ch = vars_filt_R2_ch
-                .combine(ref_R2_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, ref)
-                }
-            consensus_R2_ch = call_consensus_R2(vcf_ref_R2_ch)
+            vars_filt_R2_ch = Channel.empty()
         }
-    }
 
-    // Build per-individual references for Round 3
-    def grouped_R2_ch = consensus_R2_ch.groupTuple(by: 0)
-    def next_ref_input_R2_ch = grouped_R2_ch.map { row ->
-        def indiv     = row[0]
-        def cons_list = row[2].flatten()
-        tuple(indiv, 3, cons_list)
-    }
-    def built_ref_R2_ch = build_ref_from_consensus_R2(next_ref_input_R2_ch)
-    def indiv_ref_R3_ch = built_ref_R2_ch.map { row ->
-        def indiv = row[0]
-        def ref   = row[2]
-        tuple(indiv, ref)
+        // Masks R2
+        def mask_R2_fn_ch = null
+        if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+            def mask_het_R2_ch  = vars_filt_R2_ch | mask_hets_R2
+            def mask_cov_R2_ch  = mask_cov_R2(bam_R2_chromo_ref_ch)
+            def mask_comb_R2_ch = mask_het_R2_ch.combine(mask_cov_R2_ch, by: [0,1])
+            mask_R2_fn_ch = mask_merge_R2(mask_comb_R2_ch)
+        } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+            mask_R2_fn_ch = vars_filt_R2_ch | mask_hets_R2
+        } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+            mask_R2_fn_ch = mask_cov_R2(bam_R2_chromo_ref_ch)
+        }
+
+        // Consensus R2
+        if (params.indiv_var_call && params.call_consensus) {
+
+            def ref_R2_for_round_ch = ref_for_round(bam_R2_chromo_ref_ch)
+
+            if (params.mask_hets || params.mask_cov) {
+                def vars_mask_R2_ch = vars_filt_R2_ch.combine(mask_R2_fn_ch, by: [0,1])
+                def vars_mask_ref_R2_ch = vars_mask_R2_ch
+                    .combine(ref_R2_for_round_ch, by: [0,1])
+                    .map { pair ->
+                        def left  = pair[0]
+                        def right = pair[1]
+                        def indiv  = left[0]
+                        def chromo = left[1]
+                        def vcf    = left[2]
+                        def mask   = left[3]
+                        def ref    = right[2]
+                        tuple(indiv, chromo, vcf, mask, ref)
+                    }
+                consensus_R2_ch = call_consensus_MASK_R2(vars_mask_ref_R2_ch)
+            } else {
+                def vcf_ref_R2_ch = vars_filt_R2_ch
+                    .combine(ref_R2_for_round_ch, by: [0,1])
+                    .map { pair ->
+                        def left  = pair[0]
+                        def right = pair[1]
+                        def indiv  = left[0]
+                        def chromo = left[1]
+                        def vcf    = left[2]
+                        def ref    = right[2]
+                        tuple(indiv, chromo, vcf, ref)
+                    }
+                consensus_R2_ch = call_consensus_R2(vcf_ref_R2_ch)
+            }
+        }
+
+        // Build per-individual references for Round 3
+        if (rounds >= 3) {
+            def grouped_R2_ch = consensus_R2_ch.groupTuple(by: 0)
+            def next_ref_input_R2_ch = grouped_R2_ch.map { row ->
+                def indiv     = row[0]
+                def cons_list = row[2].flatten()
+                tuple(indiv, 3, cons_list)
+            }
+            def built_ref_R2_ch = build_ref_from_consensus_R2(next_ref_input_R2_ch)
+            indiv_ref_R3_ch = built_ref_R2_ch.map { row ->
+                def indiv = row[0]
+                def ref   = row[2]
+                tuple(indiv, ref)
+            }
+        }
     }
 
     /*
      * Round 3
      */
-
-    log.info "===================================="
-    log.info "      ITERATIVE ROUND 3"
-    log.info "===================================="
-
-    def map_input_R3_ch = reads_ch
-        .combine(indiv_ref_R3_ch, by: 0)
-        .map { pair ->
-            def left  = pair[0]
-            def right = pair[1]
-            def indiv = left[0]
-            def r1    = left[1]
-            def r2    = left[2]
-            def ref   = right[1]
-            tuple(indiv, r1, r2, ref)
-        }
-
-    def bam_R3_ch = bwa_map_R3(map_input_R3_ch)
-
-    def bam_R3_chromo_ch = bam_R3_ch.combine(chromos_ch)
-
-    def bam_R3_chromo_ref_ch = bam_R3_chromo_ch
-        .combine(indiv_ref_R3_ch, by: 0)
-        .map { pair ->
-            def left  = pair[0]
-            def right = pair[1]
-            def indiv  = left[0]
-            def bam    = left[1]
-            def bai    = left[2]
-            def chromo = left[3]
-            def ref    = right[1]
-            tuple(indiv, bam, bai, chromo, ref)
-        }
-
-    // Variants R3
-    def vars_filt_R3_ch
-    if (params.indiv_var_call && params.filt_indels) {
-        vars_filt_R3_ch = call_variants_CHROMO_R3(bam_R3_chromo_ref_ch) | remove_indels_R3
-    } else if (params.indiv_var_call && !params.filt_indels) {
-        vars_filt_R3_ch = call_variants_CHROMO_R3(bam_R3_chromo_ref_ch)
-    } else {
-        vars_filt_R3_ch = Channel.empty()
-    }
-
-    // Masks R3
-    def mask_R3_fn_ch = null
-    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
-        def mask_het_R3_ch  = vars_filt_R3_ch | mask_hets_R3
-        def mask_cov_R3_ch  = mask_cov_R3(bam_R3_chromo_ref_ch)
-        def mask_comb_R3_ch = mask_het_R3_ch.combine(mask_cov_R3_ch, by: [0,1])
-        mask_R3_fn_ch = mask_merge_R3(mask_comb_R3_ch)
-    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
-        mask_R3_fn_ch = vars_filt_R3_ch | mask_hets_R3
-    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
-        mask_R3_fn_ch = mask_cov_R3(bam_R3_chromo_ref_ch)
-    }
-
-    // Consensus R3
     def consensus_R3_ch = null
-    if (params.indiv_var_call && params.call_consensus) {
+    def indiv_ref_R4_ch = null
 
-        def ref_R3_for_round_ch = ref_for_round(bam_R3_chromo_ref_ch)
+    if (rounds >= 3) {
+        log.info "===================================="
+        log.info "      ITERATIVE ROUND 3"
+        log.info "===================================="
 
-        if (params.mask_hets || params.mask_cov) {
-            def vars_mask_R3_ch = vars_filt_R3_ch.combine(mask_R3_fn_ch, by: [0,1])
-            def vars_mask_ref_R3_ch = vars_mask_R3_ch
-                .combine(ref_R3_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def mask   = left[3]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, mask, ref)
-                }
-            consensus_R3_ch = call_consensus_MASK_R3(vars_mask_ref_R3_ch)
+        def map_input_R3_ch = reads_ch
+            .combine(indiv_ref_R3_ch, by: 0)
+            .map { pair ->
+                def left  = pair[0]
+                def right = pair[1]
+                def indiv = left[0]
+                def r1    = left[1]
+                def r2    = left[2]
+                def ref   = right[1]
+                tuple(indiv, r1, r2, ref)
+            }
+
+        def bam_R3_ch = bwa_map_R3(map_input_R3_ch)
+
+        def bam_R3_chromo_ch = bam_R3_ch.combine(chromos_ch)
+
+        def bam_R3_chromo_ref_ch = bam_R3_chromo_ch
+            .combine(indiv_ref_R3_ch, by: 0)
+            .map { pair ->
+                def left  = pair[0]
+                def right = pair[1]
+                def indiv  = left[0]
+                def bam    = left[1]
+                def bai    = left[2]
+                def chromo = left[3]
+                def ref    = right[1]
+                tuple(indiv, bam, bai, chromo, ref)
+            }
+
+        // Variants R3
+        def vars_filt_R3_ch
+        if (params.indiv_var_call && params.filt_indels) {
+            vars_filt_R3_ch = call_variants_CHROMO_R3(bam_R3_chromo_ref_ch) | remove_indels_R3
+        } else if (params.indiv_var_call && !params.filt_indels) {
+            vars_filt_R3_ch = call_variants_CHROMO_R3(bam_R3_chromo_ref_ch)
         } else {
-            def vcf_ref_R3_ch = vars_filt_R3_ch
-                .combine(ref_R3_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, ref)
-                }
-            consensus_R3_ch = call_consensus_R3(vcf_ref_R3_ch)
+            vars_filt_R3_ch = Channel.empty()
         }
-    }
 
-    // Build per-individual references for Round 4
-    def grouped_R3_ch = consensus_R3_ch.groupTuple(by: 0)
-    def next_ref_input_R3_ch = grouped_R3_ch.map { row ->
-        def indiv     = row[0]
-        def cons_list = row[2].flatten()
-        tuple(indiv, 4, cons_list)
-    }
-    def built_ref_R3_ch = build_ref_from_consensus_R3(next_ref_input_R3_ch)
-    def indiv_ref_R4_ch = built_ref_R3_ch.map { row ->
-        def indiv = row[0]
-        def ref   = row[2]
-        tuple(indiv, ref)
+        // Masks R3
+        def mask_R3_fn_ch = null
+        if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+            def mask_het_R3_ch  = vars_filt_R3_ch | mask_hets_R3
+            def mask_cov_R3_ch  = mask_cov_R3(bam_R3_chromo_ref_ch)
+            def mask_comb_R3_ch = mask_het_R3_ch.combine(mask_cov_R3_ch, by: [0,1])
+            mask_R3_fn_ch = mask_merge_R3(mask_comb_R3_ch)
+        } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+            mask_R3_fn_ch = vars_filt_R3_ch | mask_hets_R3
+        } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+            mask_R3_fn_ch = mask_cov_R3(bam_R3_chromo_ref_ch)
+        }
+
+        // Consensus R3
+        if (params.indiv_var_call && params.call_consensus) {
+
+            def ref_R3_for_round_ch = ref_for_round(bam_R3_chromo_ref_ch)
+
+            if (params.mask_hets || params.mask_cov) {
+                def vars_mask_R3_ch = vars_filt_R3_ch.combine(mask_R3_fn_ch, by: [0,1])
+                def vars_mask_ref_R3_ch = vars_mask_R3_ch
+                    .combine(ref_R3_for_round_ch, by: [0,1])
+                    .map { pair ->
+                        def left  = pair[0]
+                        def right = pair[1]
+                        def indiv  = left[0]
+                        def chromo = left[1]
+                        def vcf    = left[2]
+                        def mask   = left[3]
+                        def ref    = right[2]
+                        tuple(indiv, chromo, vcf, mask, ref)
+                    }
+                consensus_R3_ch = call_consensus_MASK_R3(vars_mask_ref_R3_ch)
+            } else {
+                def vcf_ref_R3_ch = vars_filt_R3_ch
+                    .combine(ref_R3_for_round_ch, by: [0,1])
+                    .map { pair ->
+                        def left  = pair[0]
+                        def right = pair[1]
+                        def indiv  = left[0]
+                        def chromo = left[1]
+                        def vcf    = left[2]
+                        def ref    = right[2]
+                        tuple(indiv, chromo, vcf, ref)
+                    }
+                consensus_R3_ch = call_consensus_R3(vcf_ref_R3_ch)
+            }
+        }
+
+        // Build per-individual references for Round 4
+        if (rounds >= 4) {
+            def grouped_R3_ch = consensus_R3_ch.groupTuple(by: 0)
+            def next_ref_input_R3_ch = grouped_R3_ch.map { row ->
+                def indiv     = row[0]
+                def cons_list = row[2].flatten()
+                tuple(indiv, 4, cons_list)
+            }
+            def built_ref_R3_ch = build_ref_from_consensus_R3(next_ref_input_R3_ch)
+            indiv_ref_R4_ch = built_ref_R3_ch.map { row ->
+                def indiv = row[0]
+                def ref   = row[2]
+                tuple(indiv, ref)
+            }
+        }
     }
 
     /*
-     * Round 4 (final)
+     * Round 4 (final, optional)
      */
-
-    log.info "===================================="
-    log.info "      ITERATIVE ROUND 4 (final)"
-    log.info "===================================="
-
-    def map_input_R4_ch = reads_ch
-        .combine(indiv_ref_R4_ch, by: 0)
-        .map { pair ->
-            def left  = pair[0]
-            def right = pair[1]
-            def indiv = left[0]
-            def r1    = left[1]
-            def r2    = left[2]
-            def ref   = right[1]
-            tuple(indiv, r1, r2, ref)
-        }
-
-    def bam_R4_ch = bwa_map_R4(map_input_R4_ch)
-
-    def bam_R4_chromo_ch = bam_R4_ch.combine(chromos_ch)
-
-    def bam_R4_chromo_ref_ch = bam_R4_chromo_ch
-        .combine(indiv_ref_R4_ch, by: 0)
-        .map { pair ->
-            def left  = pair[0]
-            def right = pair[1]
-            def indiv  = left[0]
-            def bam    = left[1]
-            def bai    = left[2]
-            def chromo = left[3]
-            def ref    = right[1]
-            tuple(indiv, bam, bai, chromo, ref)
-        }
-
-    // Variants R4
-    def vars_filt_R4_ch
-    if (params.indiv_var_call && params.filt_indels) {
-        vars_filt_R4_ch = call_variants_CHROMO_R4(bam_R4_chromo_ref_ch) | remove_indels_R4
-    } else if (params.indiv_var_call && !params.filt_indels) {
-        vars_filt_R4_ch = call_variants_CHROMO_R4(bam_R4_chromo_ref_ch)
-    } else {
-        vars_filt_R4_ch = Channel.empty()
-    }
-
-    // Masks R4
-    def mask_R4_fn_ch = null
-    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
-        def mask_het_R4_ch  = vars_filt_R4_ch | mask_hets_R4
-        def mask_cov_R4_ch  = mask_cov_R4(bam_R4_chromo_ref_ch)
-        def mask_comb_R4_ch = mask_het_R4_ch.combine(mask_cov_R4_ch, by: [0,1])
-        mask_R4_fn_ch = mask_merge_R4(mask_comb_R4_ch)
-    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
-        mask_R4_fn_ch = vars_filt_R4_ch | mask_hets_R4
-    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
-        mask_R4_fn_ch = mask_cov_R4(bam_R4_chromo_ref_ch)
-    }
-
-    // Consensus R4 (final)
     def consensus_R4_ch = null
-    if (params.indiv_var_call && params.call_consensus) {
 
-        def ref_R4_for_round_ch = ref_for_round(bam_R4_chromo_ref_ch)
+    if (rounds >= 4) {
+        log.info "===================================="
+        log.info "      ITERATIVE ROUND 4 (final)"
+        log.info "===================================="
 
-        if (params.mask_hets || params.mask_cov) {
-            def vars_mask_R4_ch = vars_filt_R4_ch.combine(mask_R4_fn_ch, by: [0,1])
-            def vars_mask_ref_R4_ch = vars_mask_R4_ch
-                .combine(ref_R4_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def mask   = left[3]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, mask, ref)
-                }
-            consensus_R4_ch = call_consensus_MASK_R4(vars_mask_ref_R4_ch)
+        def map_input_R4_ch = reads_ch
+            .combine(indiv_ref_R4_ch, by: 0)
+            .map { pair ->
+                def left  = pair[0]
+                def right = pair[1]
+                def indiv = left[0]
+                def r1    = left[1]
+                def r2    = left[2]
+                def ref   = right[1]
+                tuple(indiv, r1, r2, ref)
+            }
+
+        def bam_R4_ch = bwa_map_R4(map_input_R4_ch)
+
+        def bam_R4_chromo_ch = bam_R4_ch.combine(chromos_ch)
+
+        def bam_R4_chromo_ref_ch = bam_R4_chromo_ch
+            .combine(indiv_ref_R4_ch, by: 0)
+            .map { pair ->
+                def left  = pair[0]
+                def right = pair[1]
+                def indiv  = left[0]
+                def bam    = left[1]
+                def bai    = left[2]
+                def chromo = left[3]
+                def ref    = right[1]
+                tuple(indiv, bam, bai, chromo, ref)
+            }
+
+        // Variants R4
+        def vars_filt_R4_ch
+        if (params.indiv_var_call && params.filt_indels) {
+            vars_filt_R4_ch = call_variants_CHROMO_R4(bam_R4_chromo_ref_ch) | remove_indels_R4
+        } else if (params.indiv_var_call && !params.filt_indels) {
+            vars_filt_R4_ch = call_variants_CHROMO_R4(bam_R4_chromo_ref_ch)
         } else {
-            def vcf_ref_R4_ch = vars_filt_R4_ch
-                .combine(ref_R4_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, ref)
-                }
-            consensus_R4_ch = call_consensus_R4(vcf_ref_R4_ch)
+            vars_filt_R4_ch = Channel.empty()
+        }
+
+        // Masks R4
+        def mask_R4_fn_ch = null
+        if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+            def mask_het_R4_ch  = vars_filt_R4_ch | mask_hets_R4
+            def mask_cov_R4_ch  = mask_cov_R4(bam_R4_chromo_ref_ch)
+            def mask_comb_R4_ch = mask_het_R4_ch.combine(mask_cov_R4_ch, by: [0,1])
+            mask_R4_fn_ch = mask_merge_R4(mask_comb_R4_ch)
+        } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+            mask_R4_fn_ch = vars_filt_R4_ch | mask_hets_R4
+        } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+            mask_R4_fn_ch = mask_cov_R4(bam_R4_chromo_ref_ch)
+        }
+
+        // Consensus R4 (final)
+        if (params.indiv_var_call && params.call_consensus) {
+
+            def ref_R4_for_round_ch = ref_for_round(bam_R4_chromo_ref_ch)
+
+            if (params.mask_hets || params.mask_cov) {
+                def vars_mask_R4_ch = vars_filt_R4_ch.combine(mask_R4_fn_ch, by: [0,1])
+                def vars_mask_ref_R4_ch = vars_mask_R4_ch
+                    .combine(ref_R4_for_round_ch, by: [0,1])
+                    .map { pair ->
+                        def left  = pair[0]
+                        def right = pair[1]
+                        def indiv  = left[0]
+                        def chromo = left[1]
+                        def vcf    = left[2]
+                        def mask   = left[3]
+                        def ref    = right[2]
+                        tuple(indiv, chromo, vcf, mask, ref)
+                    }
+                consensus_R4_ch = call_consensus_MASK_R4(vars_mask_ref_R4_ch)
+            } else {
+                def vcf_ref_R4_ch = vars_filt_R4_ch
+                    .combine(ref_R4_for_round_ch, by: [0,1])
+                    .map { pair ->
+                        def left  = pair[0]
+                        def right = pair[1]
+                        def indiv  = left[0]
+                        def chromo = left[1]
+                        def vcf    = left[2]
+                        def ref    = right[2]
+                        tuple(indiv, chromo, vcf, ref)
+                    }
+                consensus_R4_ch = call_consensus_R4(vcf_ref_R4_ch)
+            }
         }
     }
 
-    // Missing data on final consensus
+    /*
+     * Missing data on final consensus
+     */
     if (params.calc_missing_data && params.indiv_var_call && params.call_consensus) {
-        def grouped_R4_ch = consensus_R4_ch.groupTuple(by: 0)
-        def md_input_ch = grouped_R4_ch.map { row ->
+
+        def final_consensus_ch
+        if (rounds == 1) {
+            final_consensus_ch = consensus_R1_ch
+        } else if (rounds == 2) {
+            final_consensus_ch = consensus_R2_ch
+        } else if (rounds == 3) {
+            final_consensus_ch = consensus_R3_ch
+        } else {
+            final_consensus_ch = consensus_R4_ch
+        }
+
+        def grouped_final_ch = final_consensus_ch.groupTuple(by: 0)
+        def md_input_ch = grouped_final_ch.map { row ->
             def indiv   = row[0]
             def cons_fn = row[2].flatten()
             [indiv, cons_fn]
         }
+
         calc_missing_data_INDIV(md_input_ch)
         calc_missing_data_INDIV.out.collect() | calc_missing_data_SUMMARY
     }
