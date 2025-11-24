@@ -2,11 +2,11 @@
 
 log.info """\
 
-        ================================================
+        ================================================================
         NF-varmit - Variant calling for whole-genome resequence data, iteratively
-        https://github.com/MozesBlom/nf-varmit   
-        Author: Mozes P.K. Blom ; Jon J. Hoffman
-        ================================================
+        https://github.com/MozesBlom/nf-variant
+        Authors: Mozes P.K. Blom ; Jon J. Hoffman
+        ================================================================
         |indivfile    : ${params.indivs_file}
         |chromos      : ${params.chromos_file}
         |reference    : ${params.ref_file}
@@ -15,7 +15,7 @@ log.info """\
         |
         |Sex chromos  : ${params.sex_chromos}
         |
-        |Rounds of mapping/consensus : ${params.n_rounds}
+        |Rounds of mapping/consensus : 4  (hard-coded)
         |
         |Obtain coverage stats?         : ${params.calc_coverage}
         |Call variants by individual?   : ${params.indiv_var_call}
@@ -30,33 +30,29 @@ log.info """\
         |Min depth per position?        : ${params.mask_min_cov}
         |Max depth per position?        : ${params.mask_max_cov}
         |
-        ================================================
+        ================================================================
         """
         .stripIndent()
 
 /*
 ====================================================
-~ ~ ~ > *  Input channels and file check  * < ~ ~ ~ 
+~ ~ ~ > *  Input channels and file check  * < ~ ~ ~
 ====================================================
 */
 
-/*
- * Create two lists:
- * - All individuals to include (expects that the read files are called: indiv_R1.fastq.gz / indiv_R2.fastq.gz by default)
- * - All chromosomes to include (must match exactly with reference genome fa ids)
- */
+indivs    = file(params.indivs_file).readLines()
+indivs_ch = Channel.fromList(indivs)
 
-indivs      = file(params.indivs_file).readLines()
-indivs_ch   = Channel.fromList(indivs)
-
-chromos     = file(params.chromos_file).readLines()
-chromos_ch  = Channel.fromList(chromos)
+chromos    = file(params.chromos_file).readLines()
+chromos_ch = Channel.fromList(chromos)
 
 /*
- * Reads channel:
- * - Paired-end reads per individual:
- *   (individual, R1, R2)
+ * Reads channel (paired-end)
  */
+params.readsdir      = params.readsdir      ?: params.inputdir
+params.reads_suffix1 = params.reads_suffix1 ?: '_R1.fastq.gz'
+params.reads_suffix2 = params.reads_suffix2 ?: '_R2.fastq.gz'
+
 reads_ch = indivs_ch.map { indiv ->
     def r1 = file("${params.readsdir}/${indiv}${params.reads_suffix1}")
     def r2 = file("${params.readsdir}/${indiv}${params.reads_suffix2}")
@@ -66,34 +62,26 @@ reads_ch = indivs_ch.map { indiv ->
 }
 
 /*
- * Set data channels:
- * - Reference genome for round 1
+ * Reference file: use file() and Channel.value
  */
-ref_ch = Channel.fromPath(params.ref_file)
-                .ifEmpty { error "No reference sequence found from: ${params.ref_file}" }
+def ref_file_obj = file(params.ref_file)
+if( !ref_file_obj.exists() ) {
+    error "No reference sequence found from: ${params.ref_file}"
+}
+ref_ch = Channel.value(ref_file_obj)
 
 /*
- * Default number of iterative rounds (if not set in config/CLI)
+ * Hard-code 4 rounds
  */
-params.n_rounds = params.n_rounds ?: 1
-
+params.n_rounds = 4
 
 /*
 ===============================
-~ ~ ~ > *  Processes  * < ~ ~ ~ 
+~ ~ ~ > *  Processes  * < ~ ~ ~
 ===============================
 */
 
-/*
- * NOTE: index_bam process is kept for backwards compatibility,
- * but is not used in the iterative mapping workflow below.
- */
-
-process index_bam  {
-
-/*
- * If need be index each of the bam files before proceeding.
- */
+process index_bam {
 
     tag "Index bam file"
 
@@ -109,27 +97,29 @@ process index_bam  {
     """
 }
 
+/*
+ * BWA mapping processes (per round)
+ * Use val(...) for reads and reference; we point bwa/samtools directly
+ * to the original absolute paths instead of staging them as Nextflow paths.
+ */
 
-process bwa_map {
+process bwa_map_R1 {
 
     label 'Mapping'
-    tag   "BWA-MEM mapping"
-    publishDir "${params.outputdir}/00.bam/${individual}", mode: 'copy'
-
+    tag "BWA-MEM mapping (round1)"
+    publishDir "${params.outputdir}/00.bam/round1", mode: 'copy'
 
     input:
-    tuple val(individual), path(read1), path(read2), path(reference)
+    tuple val(individual), val(read1), val(read2), val(reference)
 
     output:
     tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
 
     script:
     """
-    # Index reference if needed
     samtools faidx ${reference}
     bwa index ${reference}
 
-    # Map and sort
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
       samtools sort -@ ${task.cpus} -o ${individual}.bam
 
@@ -137,14 +127,83 @@ process bwa_map {
     """
 }
 
+process bwa_map_R2 {
 
-process cov_estimate {
+    label 'Mapping'
+    tag "BWA-MEM mapping (round2)"
+    publishDir "${params.outputdir}/00.bam/round2", mode: 'copy'
+
+    input:
+    tuple val(individual), val(read1), val(read2), val(reference)
+
+    output:
+    tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
+
+    script:
+    """
+    samtools faidx ${reference}
+    bwa index ${reference}
+
+    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+      samtools sort -@ ${task.cpus} -o ${individual}.bam
+
+    samtools index -@ ${task.cpus} ${individual}.bam
+    """
+}
+
+process bwa_map_R3 {
+
+    label 'Mapping'
+    tag "BWA-MEM mapping (round3)"
+    publishDir "${params.outputdir}/00.bam/round3", mode: 'copy'
+
+    input:
+    tuple val(individual), val(read1), val(read2), val(reference)
+
+    output:
+    tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
+
+    script:
+    """
+    samtools faidx ${reference}
+    bwa index ${reference}
+
+    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+      samtools sort -@ ${task.cpus} -o ${individual}.bam
+
+    samtools index -@ ${task.cpus} ${individual}.bam
+    """
+}
+
+process bwa_map_R4 {
+
+    label 'Mapping'
+    tag "BWA-MEM mapping (round4)"
+    publishDir "${params.outputdir}/00.bam/round4", mode: 'copy'
+
+    input:
+    tuple val(individual), val(read1), val(read2), val(reference)
+
+    output:
+    tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
+
+    script:
+    """
+    samtools faidx ${reference}
+    bwa index ${reference}
+
+    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+      samtools sort -@ ${task.cpus} -o ${individual}.bam
+
+    samtools index -@ ${task.cpus} ${individual}.bam
+    """
+}
 
 /*
- * Estimate the mean coverage for each individual and each of the focal chromosomes/scaffolds.
- * NOTE: I tried to lump all chromos per individual into one job but it didn't work.
- * so for now it will result in a larger number of short jobs (which is not optimal for a cluster)
+ * Coverage processes (used on Round 1 only)
  */
+
+process cov_estimate {
 
     tag "Estimate coverage"
 
@@ -161,15 +220,10 @@ process cov_estimate {
     """
 }
 
-
 process cov_summary_INDIV {
 
-/*
- * Accurately summarise the coverage across all target chromos per individual
- */
-
     tag "Coverage summary per individual"
-    publishDir "${params.outputdir}/00.coverage/", mode:'copy'
+    publishDir "${params.outputdir}/00.coverage", mode:'copy'
 
     input:
     tuple val(indiv), path(chromo_cov_tsv_list)
@@ -185,15 +239,10 @@ process cov_summary_INDIV {
     """
 }
 
-
 process cov_summary_ALL {
 
-/*
- * Accurately summarise the coverage across all target chromos per individual
- */
-
     tag "Coverage summary for all indivs"
-    publishDir "${params.outputdir}/00.coverage/", mode:'copy'
+    publishDir "${params.outputdir}/00.coverage", mode:'copy'
 
     input:
     path(indivs_cov_tsv_list)
@@ -210,18 +259,14 @@ process cov_summary_ALL {
     """
 }
 
-
-process call_variants_CHROMO {
-
 /*
- * Call variants for each individual by chromosome and an initial round of filtering takes place.
- *
- * We use vcfallelicprimitives to deconstruct mnps to snps.
- * My original script has the -g flag after vcf ap. Double check if this is still supported, since it's not listed in the -h list
+ * Variant calling per round
  */
 
-    tag "Variant calling per chromosome"
-    publishDir "${params.outputdir}/01.variants/${individual}", mode:'copy'
+process call_variants_CHROMO_R1 {
+
+    tag "Variant calling per chromosome (round1)"
+    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
     label 'Endurance'
 
     input:
@@ -239,15 +284,77 @@ process call_variants_CHROMO {
     """
 }
 
+process call_variants_CHROMO_R2 {
 
-process remove_indels {
+    tag "Variant calling per chromosome (round2)"
+    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+    label 'Endurance'
+
+    input:
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_vars_filt.vcf.gz")
+
+    script:
+    """
+    freebayes -f ${reference} --region ${chromo} -m 10 -p 2 ${indiv_bam} | \
+      vcffilter -f "QUAL < 20" -f "( AB > 0 ) & ( AB < 0.2 )" --invert --or | \
+      vcfallelicprimitives -k -g | \
+      bgzip -c > ${chromo}_vars_filt.vcf.gz
+    """
+}
+
+process call_variants_CHROMO_R3 {
+
+    tag "Variant calling per chromosome (round3)"
+    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+    label 'Endurance'
+
+    input:
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_vars_filt.vcf.gz")
+
+    script:
+    """
+    freebayes -f ${reference} --region ${chromo} -m 10 -p 2 ${indiv_bam} | \
+      vcffilter -f "QUAL < 20" -f "( AB > 0 ) & ( AB < 0.2 )" --invert --or | \
+      vcfallelicprimitives -k -g | \
+      bgzip -c > ${chromo}_vars_filt.vcf.gz
+    """
+}
+
+process call_variants_CHROMO_R4 {
+
+    tag "Variant calling per chromosome (round4)"
+    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+    label 'Endurance'
+
+    input:
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_vars_filt.vcf.gz")
+
+    script:
+    """
+    freebayes -f ${reference} --region ${chromo} -m 10 -p 2 ${indiv_bam} | \
+      vcffilter -f "QUAL < 20" -f "( AB > 0 ) & ( AB < 0.2 )" --invert --or | \
+      vcfallelicprimitives -k -g | \
+      bgzip -c > ${chromo}_vars_filt.vcf.gz
+    """
+}
 
 /*
- * Optional: Remove indel variation from vcf file
+ * Remove indels per round
  */
 
-    tag "Remove indels"
-    publishDir "${params.outputdir}/01.variants/${individual}", mode:'copy'
+process remove_indels_R1 {
+
+    tag "Remove indels (round1)"
+    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -263,15 +370,71 @@ process remove_indels {
     """
 }
 
+process remove_indels_R2 {
 
-process mask_hets {
+    tag "Remove indels (round2)"
+    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(var_vcf)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_vars_filt_indels.vcf.gz")
+
+    script:
+    """
+    bgzip -d -c ${var_vcf} | \
+      vcffilter -f 'TYPE = ins' -f 'TYPE = del' -f 'TYPE = complex' --invert --or | \
+      bgzip -c > ${chromo}_vars_filt_indels.vcf.gz
+    """
+}
+
+process remove_indels_R3 {
+
+    tag "Remove indels (round3)"
+    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(var_vcf)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_vars_filt_indels.vcf.gz")
+
+    script:
+    """
+    bgzip -d -c ${var_vcf} | \
+      vcffilter -f 'TYPE = ins' -f 'TYPE = del' -f 'TYPE = complex' --invert --or | \
+      bgzip -c > ${chromo}_vars_filt_indels.vcf.gz
+    """
+}
+
+process remove_indels_R4 {
+
+    tag "Remove indels (round4)"
+    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(var_vcf)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_vars_filt_indels.vcf.gz")
+
+    script:
+    """
+    bgzip -d -c ${var_vcf} | \
+      vcffilter -f 'TYPE = ins' -f 'TYPE = del' -f 'TYPE = complex' --invert --or | \
+      bgzip -c > ${chromo}_vars_filt_indels.vcf.gz
+    """
+}
 
 /*
- * Optional: Create mask file for heterozygous sites
+ * Het mask per round
  */
 
-    tag "Generate mask for het sites"
-    publishDir "${params.outputdir}/01.variants/${individual}", mode:'copy'
+process mask_hets_R1 {
+
+    tag "Generate mask for het sites (round1)"
+    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -287,15 +450,71 @@ process mask_hets {
     """
 }
 
+process mask_hets_R2 {
 
-process mask_cov {
+    tag "Generate mask for het sites (round2)"
+    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(var_vcf)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_hets.tsv")
+
+    script:
+    """
+    bgzip -d -c ${var_vcf} | \
+      vcffilter -f '( AF < 1 ) & ( AB < 0.8 )' | \
+      cut -f 1,2 > ${chromo}_hets.tsv
+    """
+}
+
+process mask_hets_R3 {
+
+    tag "Generate mask for het sites (round3)"
+    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(var_vcf)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_hets.tsv")
+
+    script:
+    """
+    bgzip -d -c ${var_vcf} | \
+      vcffilter -f '( AF < 1 ) & ( AB < 0.8 )' | \
+      cut -f 1,2 > ${chromo}_hets.tsv
+    """
+}
+
+process mask_hets_R4 {
+
+    tag "Generate mask for het sites (round4)"
+    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(var_vcf)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_hets.tsv")
+
+    script:
+    """
+    bgzip -d -c ${var_vcf} | \
+      vcffilter -f '( AF < 1 ) & ( AB < 0.8 )' | \
+      cut -f 1,2 > ${chromo}_hets.tsv
+    """
+}
 
 /*
- * Optional: Create mask file for low coverage or excess coverage sites
+ * Coverage mask per round
  */
 
-    tag "Generate mask for low or excess coverage sites"
-    publishDir "${params.outputdir}/01.variants/${individual}", mode:'copy'
+process mask_cov_R1 {
+
+    tag "Generate mask for low or excess coverage sites (round1)"
+    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
@@ -310,15 +529,68 @@ process mask_cov {
     """
 }
 
+process mask_cov_R2 {
 
-process mask_merge {
+    tag "Generate mask for low or excess coverage sites (round2)"
+    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+
+    input:
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
+
+    script:
+    """
+    samtools depth -aa -Q 10 -r ${chromo} ${indiv_bam} | \
+      awk '(\$3 < ${params.mask_min_cov} || \$3 > ${params.mask_max_cov}) {print \$1,\$2}' > ${chromo}_cov.tsv
+    """
+}
+
+process mask_cov_R3 {
+
+    tag "Generate mask for low or excess coverage sites (round3)"
+    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+
+    input:
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
+
+    script:
+    """
+    samtools depth -aa -Q 10 -r ${chromo} ${indiv_bam} | \
+      awk '(\$3 < ${params.mask_min_cov} || \$3 > ${params.mask_max_cov}) {print \$1,\$2}' > ${chromo}_cov.tsv
+    """
+}
+
+process mask_cov_R4 {
+
+    tag "Generate mask for low or excess coverage sites (round4)"
+    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+
+    input:
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
+
+    script:
+    """
+    samtools depth -aa -Q 10 -r ${chromo} ${indiv_bam} | \
+      awk '(\$3 < ${params.mask_min_cov} || \$3 > ${params.mask_max_cov}) {print \$1,\$2}' > ${chromo}_cov.tsv
+    """
+}
 
 /*
- * Optional: Merge two mask files
+ * Merge masks per round
  */
 
-    tag "Merge low cov and het mask files"
-    publishDir "${params.outputdir}/01.variants/${individual}", mode:'copy'
+process mask_merge_R1 {
+
+    tag "Merge low cov and het mask files (round1)"
+    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -333,26 +605,100 @@ process mask_merge {
     sed -i 's/ /\\t/g' ${cov_bed}
     sed -i 's/ /\\t/g' ${het_bed}
 
-    # Merge two mask files and sort by position. Remove duplicate entries
     cat ${cov_bed} ${het_bed} | \
       sort -Vk1 -Vk2 | \
       uniq > ${chromo}_cov_hets.tsv
 
-    # Add a header for each column to make it a proper bed-like tsv file
     sed -i '1i #CHROM\\tPOS' ${chromo}_cov_hets.tsv
     """
 }
 
+process mask_merge_R2 {
 
-process call_consensus {
+    tag "Merge low cov and het mask files (round2)"
+    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_cov_hets.tsv")
+
+    script:
+    """
+    sed -i '/#CHROM/d' ${cov_bed}
+    sed -i '/##/d' ${het_bed}
+    sed -i 's/ /\\t/g' ${cov_bed}
+    sed -i 's/ /\\t/g' ${het_bed}
+
+    cat ${cov_bed} ${het_bed} | \
+      sort -Vk1 -Vk2 | \
+      uniq > ${chromo}_cov_hets.tsv
+
+    sed -i '1i #CHROM\\tPOS' ${chromo}_cov_hets.tsv
+    """
+}
+
+process mask_merge_R3 {
+
+    tag "Merge low cov and het mask files (round3)"
+    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_cov_hets.tsv")
+
+    script:
+    """
+    sed -i '/#CHROM/d' ${cov_bed}
+    sed -i '/##/d' ${het_bed}
+    sed -i 's/ /\\t/g' ${cov_bed}
+    sed -i 's/ /\\t/g' ${het_bed}
+
+    cat ${cov_bed} ${het_bed} | \
+      sort -Vk1 -Vk2 | \
+      uniq > ${chromo}_cov_hets.tsv
+
+    sed -i '1i #CHROM\\tPOS' ${chromo}_cov_hets.tsv
+    """
+}
+
+process mask_merge_R4 {
+
+    tag "Merge low cov and het mask files (round4)"
+    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
+
+    output:
+    tuple val(individual), val(chromo), path("${chromo}_cov_hets.tsv")
+
+    script:
+    """
+    sed -i '/#CHROM/d' ${cov_bed}
+    sed -i '/##/d' ${het_bed}
+    sed -i 's/ /\\t/g' ${cov_bed}
+    sed -i 's/ /\\t/g' ${het_bed}
+
+    cat ${cov_bed} ${het_bed} | \
+      sort -Vk1 -Vk2 | \
+      uniq > ${chromo}_cov_hets.tsv
+
+    sed -i '1i #CHROM\\tPOS' ${chromo}_cov_hets.tsv
+    """
+}
 
 /*
- * Call a consensus sequence for each individual by chromosome WITHOUT MASKING
- * (reference is provided per round and per individual/chromosome)
+ * Consensus per round
  */
 
-    tag "Call consensus without masking"
-    publishDir "${params.outputdir}/02.consensus/${individual}", mode:'copy'
+process call_consensus_R1 {
+
+    tag "Call consensus without masking (round1)"
+    publishDir "${params.outputdir}/02.consensus/round1", mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -369,15 +715,10 @@ process call_consensus {
     """
 }
 
+process call_consensus_MASK_R1 {
 
-process call_consensus_MASK {
-
-/*
- * Call a consensus sequence for each individual by chromosome WITH MASKING
- */
-
-    tag "Call consensus with masking"
-    publishDir "${params.outputdir}/02.consensus/${individual}", mode:'copy'
+    tag "Call consensus with masking (round1)"
+    publishDir "${params.outputdir}/02.consensus/round1", mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -394,16 +735,134 @@ process call_consensus_MASK {
     """
 }
 
+process call_consensus_R2 {
 
-process build_ref_from_consensus {
+    tag "Call consensus without masking (round2)"
+    publishDir "${params.outputdir}/02.consensus/round2", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(vcf_fn), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${individual}_${chromo}_cons.fa")
+
+    script:
+    """
+    tabix -p vcf ${vcf_fn}
+
+    samtools faidx ${reference} ${chromo} | \
+      bcftools consensus ${vcf_fn} -o ${individual}_${chromo}_cons.fa
+    """
+}
+
+process call_consensus_MASK_R2 {
+
+    tag "Call consensus with masking (round2)"
+    publishDir "${params.outputdir}/02.consensus/round2", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${individual}_${chromo}_cons.fa")
+
+    script:
+    """
+    tabix -p vcf ${vcf_fn}
+
+    samtools faidx ${reference} ${chromo} | \
+      bcftools consensus ${vcf_fn} -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
+    """
+}
+
+process call_consensus_R3 {
+
+    tag "Call consensus without masking (round3)"
+    publishDir "${params.outputdir}/02.consensus/round3", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(vcf_fn), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${individual}_${chromo}_cons.fa")
+
+    script:
+    """
+    tabix -p vcf ${vcf_fn}
+
+    samtools faidx ${reference} ${chromo} | \
+      bcftools consensus ${vcf_fn} -o ${individual}_${chromo}_cons.fa
+    """
+}
+
+process call_consensus_MASK_R3 {
+
+    tag "Call consensus with masking (round3)"
+    publishDir "${params.outputdir}/02.consensus/round3", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${individual}_${chromo}_cons.fa")
+
+    script:
+    """
+    tabix -p vcf ${vcf_fn}
+
+    samtools faidx ${reference} ${chromo} | \
+      bcftools consensus ${vcf_fn} -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
+    """
+}
+
+process call_consensus_R4 {
+
+    tag "Call consensus without masking (round4)"
+    publishDir "${params.outputdir}/02.consensus/round4", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(vcf_fn), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${individual}_${chromo}_cons.fa")
+
+    script:
+    """
+    tabix -p vcf ${vcf_fn}
+
+    samtools faidx ${reference} ${chromo} | \
+      bcftools consensus ${vcf_fn} -o ${individual}_${chromo}_cons.fa
+    """
+}
+
+process call_consensus_MASK_R4 {
+
+    tag "Call consensus with masking (round4)"
+    publishDir "${params.outputdir}/02.consensus/round4", mode:'copy'
+
+    input:
+    tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
+
+    output:
+    tuple val(individual), val(chromo), path("${individual}_${chromo}_cons.fa")
+
+    script:
+    """
+    tabix -p vcf ${vcf_fn}
+
+    samtools faidx ${reference} ${chromo} | \
+      bcftools consensus ${vcf_fn} -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
+    """
+}
 
 /*
- * Concatenate per-chromosome consensus sequences into a per-individual
- * reference fasta for the next mapping round.
+ * Build per-individual references from consensus (rounds 1–3)
  */
 
-    tag "Build per-individual reference for next round"
-    publishDir "${params.outputdir}/02.consensus_refs/${individual}", mode:'copy'
+process build_ref_from_consensus_R1 {
+
+    tag "Build per-individual reference for next round (round1→2)"
+    publishDir "${params.outputdir}/02.consensus_refs/round1", mode:'copy'
 
     input:
     tuple val(individual), val(round), path(cons_list)
@@ -417,17 +876,48 @@ process build_ref_from_consensus {
     """
 }
 
+process build_ref_from_consensus_R2 {
+
+    tag "Build per-individual reference for next round (round2→3)"
+    publishDir "${params.outputdir}/02.consensus_refs/round2", mode:'copy'
+
+    input:
+    tuple val(individual), val(round), path(cons_list)
+
+    output:
+    tuple val(individual), val(round), path("${individual}_round${round}_ref.fa")
+
+    script:
+    """
+    cat ${cons_list} > ${individual}_round${round}_ref.fa
+    """
+}
+
+process build_ref_from_consensus_R3 {
+
+    tag "Build per-individual reference for next round (round3→4)"
+    publishDir "${params.outputdir}/02.consensus_refs/round3", mode:'copy'
+
+    input:
+    tuple val(individual), val(round), path(cons_list)
+
+    output:
+    tuple val(individual), val(round), path("${individual}_round${round}_ref.fa")
+
+    script:
+    """
+    cat ${cons_list} > ${individual}_round${round}_ref.fa
+    """
+}
+
+/*
+ * Missing data stats on final consensus
+ */
 
 process calc_missing_data_INDIV {
 
-/*
- * Optional: Estimate the amount of missing data for each individual and each chromosome
- * NOTE: Within the framework of the current pipeline this can be optimised by using the mask files.
- * However, I already had existing scripts borrowed from nf-phylo to make this work.
- */
-
     tag "Calculate missing data per individual and chromosome"
-    publishDir "${params.outputdir}/02.consensus/${individual}", mode:'copy'
+    publishDir "${params.outputdir}/02.consensus/final", mode:'copy'
 
     input:
     tuple val(individual), path(cons_fn_list)
@@ -443,17 +933,10 @@ process calc_missing_data_INDIV {
     """
 }
 
-
 process calc_missing_data_SUMMARY {
 
-/*
- * Optional: Summarise the amount of missing data across all individuals
- * NOTE: Within the framework of the current pipeline this can be optimised by using the mask files.
- * However, I already had existing scripts borrowed from nf-phylo to make this work.
- */
-
-    tag "Calculate missing data across all individual"
-    publishDir "${params.outputdir}/02.consensus/", mode:'copy'
+    tag "Calculate missing data across all individuals"
+    publishDir "${params.outputdir}/02.consensus/final", mode:'copy'
 
     input:
     path(cons_fn_list)
@@ -471,17 +954,12 @@ process calc_missing_data_SUMMARY {
     """
 }
 
-
 /*
 =========================================================
-~ ~ ~ > *  Helper closures for iterative workflow * < ~ ~ ~ 
+~ ~ ~ > *  Helper closure * < ~ ~ ~
 =========================================================
 */
 
-/*
- * Extract (indiv, chromo, ref) from (indiv, bam, bai, chromo, ref) tuples
- * for combining with variant/consensus channels.
- */
 def ref_for_round = { ch ->
     ch.map { row ->
         def indiv  = row[0]
@@ -491,178 +969,449 @@ def ref_for_round = { ch ->
     }
 }
 
-
 /*
 ============================================
-~ ~ ~ > *  Pipeline specification  * < ~ ~ ~ 
+~ ~ ~ > *  Pipeline specification  * < ~ ~ ~
 ============================================
 */
 
 workflow {
 
     /*
-     * Per-individual reference channel for round 1:
-     * every individual starts from the same params.ref_file.
-     * indiv_ref_ch: (indiv, ref)
+     * Round 1
      */
-    def indiv_ref_ch = indivs_ch.combine(ref_ch)
 
-    // Keep track of last round’s consensus (for stats) and mapping channel
-    def consensus_last       = null
-    def bam_chromo_ref_last  = null
+    log.info "===================================="
+    log.info "      ITERATIVE ROUND 1"
+    log.info "===================================="
+
+    // Mapping R1: attach original reference file to each indiv/read tuple
+    def map_input_R1_ch = reads_ch.map { row ->
+        def indiv = row[0]
+        def r1    = row[1]
+        def r2    = row[2]
+        tuple(indiv, r1, r2, ref_file_obj)
+    }
+
+    def bam_R1_ch         = bwa_map_R1(map_input_R1_ch)
+    def bam_R1_chromo_ch  = bam_R1_ch.combine(chromos_ch)
+    def bam_R1_chromo_ref_ch = bam_R1_chromo_ch.map { row ->
+        def indiv  = row[0]
+        def bam    = row[1]
+        def bai    = row[2]
+        def chromo = row[3]
+        tuple(indiv, bam, bai, chromo, ref_file_obj)
+    }
+
+    // Coverage (only R1)
+    if (params.calc_coverage) {
+        cov_estimate(bam_R1_chromo_ref_ch)
+        cov_estimate.out.groupTuple() | cov_summary_INDIV
+        cov_summary_INDIV.out.collect() | cov_summary_ALL
+    }
+
+    // Variants R1
+    def vars_filt_R1_ch
+    if (params.indiv_var_call && params.filt_indels) {
+        vars_filt_R1_ch = call_variants_CHROMO_R1(bam_R1_chromo_ref_ch) | remove_indels_R1
+    } else if (params.indiv_var_call && !params.filt_indels) {
+        vars_filt_R1_ch = call_variants_CHROMO_R1(bam_R1_chromo_ref_ch)
+    } else {
+        vars_filt_R1_ch = Channel.empty()
+    }
+
+    // Masks R1
+    def mask_R1_fn_ch = null
+    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+        def mask_het_R1_ch  = vars_filt_R1_ch | mask_hets_R1
+        def mask_cov_R1_ch  = mask_cov_R1(bam_R1_chromo_ref_ch)
+        def mask_comb_R1_ch = mask_het_R1_ch.combine(mask_cov_R1_ch, by: [0,1])
+        mask_R1_fn_ch = mask_merge_R1(mask_comb_R1_ch)
+    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+        mask_R1_fn_ch = vars_filt_R1_ch | mask_hets_R1
+    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+        mask_R1_fn_ch = mask_cov_R1(bam_R1_chromo_ref_ch)
+    }
+
+    // Consensus R1
+    def consensus_R1_ch = null
+    if (params.indiv_var_call && params.call_consensus) {
+
+        def ref_R1_for_round_ch = ref_for_round(bam_R1_chromo_ref_ch)
+
+        if (params.mask_hets || params.mask_cov) {
+            def vars_mask_R1_ch = vars_filt_R1_ch.combine(mask_R1_fn_ch, by: [0,1])
+            def vars_mask_ref_R1_ch = vars_mask_R1_ch
+                .combine(ref_R1_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def mask   = left[3]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, mask, ref)
+                }
+            consensus_R1_ch = call_consensus_MASK_R1(vars_mask_ref_R1_ch)
+        } else {
+            def vcf_ref_R1_ch = vars_filt_R1_ch
+                .combine(ref_R1_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, ref)
+                }
+            consensus_R1_ch = call_consensus_R1(vcf_ref_R1_ch)
+        }
+    }
+
+    // Build per-individual references for Round 2
+    def grouped_R1_ch = consensus_R1_ch.groupTuple(by: 0)
+    def next_ref_input_R1_ch = grouped_R1_ch.map { row ->
+        def indiv     = row[0]
+        def cons_list = row[2].flatten()
+        tuple(indiv, 2, cons_list)
+    }
+    def built_ref_R1_ch = build_ref_from_consensus_R1(next_ref_input_R1_ch)
+    def indiv_ref_R2_ch = built_ref_R1_ch.map { row ->
+        def indiv = row[0]
+        def ref   = row[2]
+        tuple(indiv, ref)
+    }
 
     /*
-     * Main iterative loop:
-     *  - map reads to per-individual reference
-     *  - call variants + masks
-     *  - build consensus
-     *  - build new reference for next round
+     * Round 2
      */
-    (1..params.n_rounds).each { round ->
 
-        log.info "===================================="
-        log.info "      ITERATIVE ROUND ${round}"
-        log.info "===================================="
+    log.info "===================================="
+    log.info "      ITERATIVE ROUND 2"
+    log.info "===================================="
 
-        //
-        // 1) Mapping with bwa-mem: (indiv, R1, R2) + (indiv, ref) → (indiv, bam, bai)
-        //
-        def map_input_ch = reads_ch
-            .combine(indiv_ref_ch, by: 0)
-            .map { left, right ->
-                /*
-                 * left  = [indiv, r1, r2]
-                 * right = [indiv, ref]
-                 */
-                def indiv = left[0]
-                def r1    = left[1]
-                def r2    = left[2]
-                def ref   = right[1]
-                tuple(indiv, r1, r2, ref)
-            }
-
-        def bam_round_ch = bwa_map(map_input_ch)   // (indiv, bam, bai)
-
-        //
-        // 2) Build (indiv, bam, bai, chromo, ref) for this round
-        //
-        def bam_chromo_ch = bam_round_ch
-            .combine(chromos_ch)                  // (indiv, bam, bai, chromo)
-
-        def bam_chromo_ref_ch = bam_chromo_ch
-            .combine(indiv_ref_ch, by: 0)         // join on individual
-            .map { left, right ->
-                /*
-                 * left  = [indiv, bam, bai, chromo]
-                 * right = [indiv, ref]
-                 */
-                def indiv  = left[0]
-                def bam    = left[1]
-                def bai    = left[2]
-                def chromo = left[3]
-                def ref    = right[1]
-                tuple(indiv, bam, bai, chromo, ref)
-            }
-
-        bam_chromo_ref_last = bam_chromo_ref_ch   // remember last round’s mapping
-
-        //
-        // 3) Coverage estimation (optional; per round)
-        //
-        if (params.calc_coverage) {
-            cov_estimate(bam_chromo_ref_ch)
-            cov_estimate.out.groupTuple() | cov_summary_INDIV
-            cov_summary_INDIV.out.collect() | cov_summary_ALL
+    def map_input_R2_ch = reads_ch
+        .combine(indiv_ref_R2_ch, by: 0)
+        .map { pair ->
+            def left  = pair[0]
+            def right = pair[1]
+            def indiv = left[0]
+            def r1    = left[1]
+            def r2    = left[2]
+            def ref   = right[1]
+            tuple(indiv, r1, r2, ref)
         }
 
-        //
-        // 4) Variant calling + filtering
-        //
-        def vars_filt_fn_ch
-        if (params.indiv_var_call && params.filt_indels) {
-            vars_filt_fn_ch = call_variants_CHROMO(bam_chromo_ref_ch) | remove_indels
-        } else if (params.indiv_var_call && !params.filt_indels) {
-            vars_filt_fn_ch = call_variants_CHROMO(bam_chromo_ref_ch)
+    def bam_R2_ch = bwa_map_R2(map_input_R2_ch)
+
+    def bam_R2_chromo_ch = bam_R2_ch.combine(chromos_ch)
+
+    def bam_R2_chromo_ref_ch = bam_R2_chromo_ch
+        .combine(indiv_ref_R2_ch, by: 0)
+        .map { pair ->
+            def left  = pair[0]
+            def right = pair[1]
+            def indiv  = left[0]
+            def bam    = left[1]
+            def bai    = left[2]
+            def chromo = left[3]
+            def ref    = right[1]
+            tuple(indiv, bam, bai, chromo, ref)
+        }
+
+    // Variants R2
+    def vars_filt_R2_ch
+    if (params.indiv_var_call && params.filt_indels) {
+        vars_filt_R2_ch = call_variants_CHROMO_R2(bam_R2_chromo_ref_ch) | remove_indels_R2
+    } else if (params.indiv_var_call && !params.filt_indels) {
+        vars_filt_R2_ch = call_variants_CHROMO_R2(bam_R2_chromo_ref_ch)
+    } else {
+        vars_filt_R2_ch = Channel.empty()
+    }
+
+    // Masks R2
+    def mask_R2_fn_ch = null
+    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+        def mask_het_R2_ch  = vars_filt_R2_ch | mask_hets_R2
+        def mask_cov_R2_ch  = mask_cov_R2(bam_R2_chromo_ref_ch)
+        def mask_comb_R2_ch = mask_het_R2_ch.combine(mask_cov_R2_ch, by: [0,1])
+        mask_R2_fn_ch = mask_merge_R2(mask_comb_R2_ch)
+    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+        mask_R2_fn_ch = vars_filt_R2_ch | mask_hets_R2
+    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+        mask_R2_fn_ch = mask_cov_R2(bam_R2_chromo_ref_ch)
+    }
+
+    // Consensus R2
+    def consensus_R2_ch = null
+    if (params.indiv_var_call && params.call_consensus) {
+
+        def ref_R2_for_round_ch = ref_for_round(bam_R2_chromo_ref_ch)
+
+        if (params.mask_hets || params.mask_cov) {
+            def vars_mask_R2_ch = vars_filt_R2_ch.combine(mask_R2_fn_ch, by: [0,1])
+            def vars_mask_ref_R2_ch = vars_mask_R2_ch
+                .combine(ref_R2_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def mask   = left[3]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, mask, ref)
+                }
+            consensus_R2_ch = call_consensus_MASK_R2(vars_mask_ref_R2_ch)
         } else {
-            vars_filt_fn_ch = Channel.empty()
+            def vcf_ref_R2_ch = vars_filt_R2_ch
+                .combine(ref_R2_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, ref)
+                }
+            consensus_R2_ch = call_consensus_R2(vcf_ref_R2_ch)
+        }
+    }
+
+    // Build per-individual references for Round 3
+    def grouped_R2_ch = consensus_R2_ch.groupTuple(by: 0)
+    def next_ref_input_R2_ch = grouped_R2_ch.map { row ->
+        def indiv     = row[0]
+        def cons_list = row[2].flatten()
+        tuple(indiv, 3, cons_list)
+    }
+    def built_ref_R2_ch = build_ref_from_consensus_R2(next_ref_input_R2_ch)
+    def indiv_ref_R3_ch = built_ref_R2_ch.map { row ->
+        def indiv = row[0]
+        def ref   = row[2]
+        tuple(indiv, ref)
+    }
+
+    /*
+     * Round 3
+     */
+
+    log.info "===================================="
+    log.info "      ITERATIVE ROUND 3"
+    log.info "===================================="
+
+    def map_input_R3_ch = reads_ch
+        .combine(indiv_ref_R3_ch, by: 0)
+        .map { pair ->
+            def left  = pair[0]
+            def right = pair[1]
+            def indiv = left[0]
+            def r1    = left[1]
+            def r2    = left[2]
+            def ref   = right[1]
+            tuple(indiv, r1, r2, ref)
         }
 
-        //
-        // 5) Masking (hets / cov)
-        //
-        def mask_fn_ch = null
-        if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
-            def mask_het_fn_ch   = vars_filt_fn_ch | mask_hets
-            def mask_cov_fn_ch   = mask_cov(bam_chromo_ref_ch)
-            def mask_combined_ch = mask_het_fn_ch.combine(mask_cov_fn_ch, by: [0,1])
-            mask_fn_ch = mask_merge(mask_combined_ch)
-        } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
-            mask_fn_ch = vars_filt_fn_ch | mask_hets
-        } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
-            mask_fn_ch = mask_cov(bam_chromo_ref_ch)
+    def bam_R3_ch = bwa_map_R3(map_input_R3_ch)
+
+    def bam_R3_chromo_ch = bam_R3_ch.combine(chromos_ch)
+
+    def bam_R3_chromo_ref_ch = bam_R3_chromo_ch
+        .combine(indiv_ref_R3_ch, by: 0)
+        .map { pair ->
+            def left  = pair[0]
+            def right = pair[1]
+            def indiv  = left[0]
+            def bam    = left[1]
+            def bai    = left[2]
+            def chromo = left[3]
+            def ref    = right[1]
+            tuple(indiv, bam, bai, chromo, ref)
         }
 
-        //
-        // 6) Consensus for this round, using round-specific reference
-        //
-        def consensus_fn = null
+    // Variants R3
+    def vars_filt_R3_ch
+    if (params.indiv_var_call && params.filt_indels) {
+        vars_filt_R3_ch = call_variants_CHROMO_R3(bam_R3_chromo_ref_ch) | remove_indels_R3
+    } else if (params.indiv_var_call && !params.filt_indels) {
+        vars_filt_R3_ch = call_variants_CHROMO_R3(bam_R3_chromo_ref_ch)
+    } else {
+        vars_filt_R3_ch = Channel.empty()
+    }
 
-        if (params.indiv_var_call && params.call_consensus) {
+    // Masks R3
+    def mask_R3_fn_ch = null
+    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+        def mask_het_R3_ch  = vars_filt_R3_ch | mask_hets_R3
+        def mask_cov_R3_ch  = mask_cov_R3(bam_R3_chromo_ref_ch)
+        def mask_comb_R3_ch = mask_het_R3_ch.combine(mask_cov_R3_ch, by: [0,1])
+        mask_R3_fn_ch = mask_merge_R3(mask_comb_R3_ch)
+    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+        mask_R3_fn_ch = vars_filt_R3_ch | mask_hets_R3
+    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+        mask_R3_fn_ch = mask_cov_R3(bam_R3_chromo_ref_ch)
+    }
 
-            // (indiv, chromo, ref) for this round
-            def ref_for_this_round = ref_for_round(bam_chromo_ref_ch)
+    // Consensus R3
+    def consensus_R3_ch = null
+    if (params.indiv_var_call && params.call_consensus) {
 
-            if (params.mask_hets || params.mask_cov) {
-                // vcf + mask + ref → call_consensus_MASK
-                def vars_mask_ch = vars_filt_fn_ch.combine(mask_fn_ch, by: [0,1])   // (indiv, chromo, vcf, mask)
-                def vars_mask_ref_ch = vars_mask_ch.combine(ref_for_this_round, by: [0,1]) // (indiv, chromo, vcf, mask, ref)
+        def ref_R3_for_round_ch = ref_for_round(bam_R3_chromo_ref_ch)
 
-                consensus_fn = call_consensus_MASK(vars_mask_ref_ch)
-            } else {
-                // vcf + ref → call_consensus
-                def vcf_with_ref_ch = vars_filt_fn_ch.combine(ref_for_this_round, by: [0,1]) // (indiv, chromo, vcf, ref)
-                consensus_fn = call_consensus(vcf_with_ref_ch)
-            }
+        if (params.mask_hets || params.mask_cov) {
+            def vars_mask_R3_ch = vars_filt_R3_ch.combine(mask_R3_fn_ch, by: [0,1])
+            def vars_mask_ref_R3_ch = vars_mask_R3_ch
+                .combine(ref_R3_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def mask   = left[3]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, mask, ref)
+                }
+            consensus_R3_ch = call_consensus_MASK_R3(vars_mask_ref_R3_ch)
+        } else {
+            def vcf_ref_R3_ch = vars_filt_R3_ch
+                .combine(ref_R3_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, ref)
+                }
+            consensus_R3_ch = call_consensus_R3(vcf_ref_R3_ch)
+        }
+    }
+
+    // Build per-individual references for Round 4
+    def grouped_R3_ch = consensus_R3_ch.groupTuple(by: 0)
+    def next_ref_input_R3_ch = grouped_R3_ch.map { row ->
+        def indiv     = row[0]
+        def cons_list = row[2].flatten()
+        tuple(indiv, 4, cons_list)
+    }
+    def built_ref_R3_ch = build_ref_from_consensus_R3(next_ref_input_R3_ch)
+    def indiv_ref_R4_ch = built_ref_R3_ch.map { row ->
+        def indiv = row[0]
+        def ref   = row[2]
+        tuple(indiv, ref)
+    }
+
+    /*
+     * Round 4 (final)
+     */
+
+    log.info "===================================="
+    log.info "      ITERATIVE ROUND 4 (final)"
+    log.info "===================================="
+
+    def map_input_R4_ch = reads_ch
+        .combine(indiv_ref_R4_ch, by: 0)
+        .map { pair ->
+            def left  = pair[0]
+            def right = pair[1]
+            def indiv = left[0]
+            def r1    = left[1]
+            def r2    = left[2]
+            def ref   = right[1]
+            tuple(indiv, r1, r2, ref)
         }
 
-        consensus_last = consensus_fn  // store final consensus of this round
+    def bam_R4_ch = bwa_map_R4(map_input_R4_ch)
 
-        //
-        // 7) Build per-individual reference for the next round
-        //
-        if (round < params.n_rounds && params.indiv_var_call && params.call_consensus) {
+    def bam_R4_chromo_ch = bam_R4_ch.combine(chromos_ch)
 
-            def new_ref_ch = consensus_fn
-                .groupTuple(by: 0)     // (indiv, [chromo_list], [cons_list])
-                .map { row ->
-                    def indiv     = row[0]
-                    def cons_list = row[2].flatten()
-                    tuple(indiv, round + 1, cons_list)
-                } \
-                | build_ref_from_consensus
-
-            // For the next round we only need (indiv, ref)
-            indiv_ref_ch = new_ref_ch.map { row ->
-                def indiv = row[0]
-                def ref   = row[2]
-                tuple(indiv, ref)
-            }
+    def bam_R4_chromo_ref_ch = bam_R4_chromo_ch
+        .combine(indiv_ref_R4_ch, by: 0)
+        .map { pair ->
+            def left  = pair[0]
+            def right = pair[1]
+            def indiv  = left[0]
+            def bam    = left[1]
+            def bai    = left[2]
+            def chromo = left[3]
+            def ref    = right[1]
+            tuple(indiv, bam, bai, chromo, ref)
         }
 
-    } // end rounds loop
+    // Variants R4
+    def vars_filt_R4_ch
+    if (params.indiv_var_call && params.filt_indels) {
+        vars_filt_R4_ch = call_variants_CHROMO_R4(bam_R4_chromo_ref_ch) | remove_indels_R4
+    } else if (params.indiv_var_call && !params.filt_indels) {
+        vars_filt_R4_ch = call_variants_CHROMO_R4(bam_R4_chromo_ref_ch)
+    } else {
+        vars_filt_R4_ch = Channel.empty()
+    }
 
-    //
-    // 8) After last round: missing data on final consensus (optional)
-    //
-    if (params.calc_missing_data && consensus_last) {
-        consensus_last
-            .groupTuple(by: 0)
-            .map { it ->
-                def indiv   = it[0]
-                def cons_fn = it[2].flatten()
-                [indiv, cons_fn]
-            } | calc_missing_data_INDIV
+    // Masks R4
+    def mask_R4_fn_ch = null
+    if (params.indiv_var_call && params.mask_hets && params.mask_cov) {
+        def mask_het_R4_ch  = vars_filt_R4_ch | mask_hets_R4
+        def mask_cov_R4_ch  = mask_cov_R4(bam_R4_chromo_ref_ch)
+        def mask_comb_R4_ch = mask_het_R4_ch.combine(mask_cov_R4_ch, by: [0,1])
+        mask_R4_fn_ch = mask_merge_R4(mask_comb_R4_ch)
+    } else if (params.indiv_var_call && params.mask_hets && !params.mask_cov) {
+        mask_R4_fn_ch = vars_filt_R4_ch | mask_hets_R4
+    } else if (params.indiv_var_call && !params.mask_hets && params.mask_cov) {
+        mask_R4_fn_ch = mask_cov_R4(bam_R4_chromo_ref_ch)
+    }
 
+    // Consensus R4 (final)
+    def consensus_R4_ch = null
+    if (params.indiv_var_call && params.call_consensus) {
+
+        def ref_R4_for_round_ch = ref_for_round(bam_R4_chromo_ref_ch)
+
+        if (params.mask_hets || params.mask_cov) {
+            def vars_mask_R4_ch = vars_filt_R4_ch.combine(mask_R4_fn_ch, by: [0,1])
+            def vars_mask_ref_R4_ch = vars_mask_R4_ch
+                .combine(ref_R4_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def mask   = left[3]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, mask, ref)
+                }
+            consensus_R4_ch = call_consensus_MASK_R4(vars_mask_ref_R4_ch)
+        } else {
+            def vcf_ref_R4_ch = vars_filt_R4_ch
+                .combine(ref_R4_for_round_ch, by: [0,1])
+                .map { pair ->
+                    def left  = pair[0]
+                    def right = pair[1]
+                    def indiv  = left[0]
+                    def chromo = left[1]
+                    def vcf    = left[2]
+                    def ref    = right[2]
+                    tuple(indiv, chromo, vcf, ref)
+                }
+            consensus_R4_ch = call_consensus_R4(vcf_ref_R4_ch)
+        }
+    }
+
+    // Missing data on final consensus
+    if (params.calc_missing_data && params.indiv_var_call && params.call_consensus) {
+        def grouped_R4_ch = consensus_R4_ch.groupTuple(by: 0)
+        def md_input_ch = grouped_R4_ch.map { row ->
+            def indiv   = row[0]
+            def cons_fn = row[2].flatten()
+            [indiv, cons_fn]
+        }
+        calc_missing_data_INDIV(md_input_ch)
         calc_missing_data_INDIV.out.collect() | calc_missing_data_SUMMARY
     }
 }
