@@ -62,7 +62,7 @@ reads_ch = indivs_ch.map { indiv ->
 }
 
 /*
- * Reference file: use file() and Channel.value
+ * Reference file
  */
 def ref_file_obj = file(params.ref_file)
 if( !ref_file_obj.exists() ) {
@@ -111,7 +111,7 @@ process bwa_map_R1 {
     publishDir "${params.outputdir}/00.bam/round1", mode: 'copy'
 
     input:
-    tuple val(individual), val(read1), val(read2), val(reference)
+    tuple val(individual), path(read1), path(read2), path(reference)
 
     output:
     tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
@@ -135,7 +135,7 @@ process bwa_map_R2 {
     publishDir "${params.outputdir}/00.bam/round2", mode: 'copy'
 
     input:
-    tuple val(individual), val(read1), val(read2), val(reference)
+    tuple val(individual), path(read1), path(read2), path(reference)
 
     output:
     tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
@@ -159,7 +159,7 @@ process bwa_map_R3 {
     publishDir "${params.outputdir}/00.bam/round3", mode: 'copy'
 
     input:
-    tuple val(individual), val(read1), val(read2), val(reference)
+    tuple val(individual), path(read1), path(read2), path(reference)
 
     output:
     tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
@@ -183,7 +183,7 @@ process bwa_map_R4 {
     publishDir "${params.outputdir}/00.bam/round4", mode: 'copy'
 
     input:
-    tuple val(individual), val(read1), val(read2), val(reference)
+    tuple val(individual), path(read1), path(read2), path(reference)
 
     output:
     tuple val(individual), path("${individual}.bam"), path("${individual}.bam.bai")
@@ -518,7 +518,7 @@ process mask_cov_R1 {
     publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
 
     input:
-    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
 
     output:
     tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
@@ -536,7 +536,7 @@ process mask_cov_R2 {
     publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
 
     input:
-    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
 
     output:
     tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
@@ -554,7 +554,7 @@ process mask_cov_R3 {
     publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
 
     input:
-    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
 
     output:
     tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
@@ -572,7 +572,7 @@ process mask_cov_R4 {
     publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
 
     input:
-    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), file(reference)
+    tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
 
     output:
     tuple val(individual), val(chromo), path("${chromo}_cov.tsv")
@@ -694,6 +694,8 @@ process mask_merge_R4 {
 
 /*
  * Consensus per round
+ * R1: standard
+ * R2–R4: use bcftools +fixref to ensure REF matches FASTA
  */
 
 process call_consensus_R1 {
@@ -736,6 +738,8 @@ process call_consensus_MASK_R1 {
     """
 }
 
+/* R2: with fixref */
+
 process call_consensus_R2 {
 
     tag "Call consensus without masking (round2)"
@@ -749,10 +753,18 @@ process call_consensus_R2 {
 
     script:
     """
+    # Index original VCF
     tabix -p vcf ${vcf_fn}
 
+    # Fix REF alleles to match reference FASTA, output gzipped VCF
+    bcftools +fixref ${vcf_fn} -Oz -o ${chromo}_fixed.vcf.gz -- -f ${reference} -m flip -d
+
+    # Index fixed VCF
+    tabix -p vcf ${chromo}_fixed.vcf.gz
+
+    # Build consensus from fixed VCF
     samtools faidx ${reference} ${chromo} | \
-      bcftools consensus ${vcf_fn} -o ${individual}_${chromo}_cons.fa
+      bcftools consensus ${chromo}_fixed.vcf.gz -o ${individual}_${chromo}_cons.fa
     """
 }
 
@@ -769,12 +781,22 @@ process call_consensus_MASK_R2 {
 
     script:
     """
+    # Index original VCF
     tabix -p vcf ${vcf_fn}
 
+    # Fix REF alleles to match reference FASTA, output gzipped VCF
+    bcftools +fixref ${vcf_fn} -Oz -o ${chromo}_fixed.vcf.gz -- -f ${reference} -m flip -d
+
+    # Index fixed VCF
+    tabix -p vcf ${chromo}_fixed.vcf.gz
+
+    # Build masked consensus from fixed VCF
     samtools faidx ${reference} ${chromo} | \
-      bcftools consensus ${vcf_fn} -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
+      bcftools consensus ${chromo}_fixed.vcf.gz -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
     """
 }
+
+/* R3: with fixref */
 
 process call_consensus_R3 {
 
@@ -791,8 +813,12 @@ process call_consensus_R3 {
     """
     tabix -p vcf ${vcf_fn}
 
+    bcftools +fixref ${vcf_fn} -Oz -o ${chromo}_fixed.vcf.gz -- -f ${reference} -m flip -d
+
+    tabix -p vcf ${chromo}_fixed.vcf.gz
+
     samtools faidx ${reference} ${chromo} | \
-      bcftools consensus ${vcf_fn} -o ${individual}_${chromo}_cons.fa
+      bcftools consensus ${chromo}_fixed.vcf.gz -o ${individual}_${chromo}_cons.fa
     """
 }
 
@@ -811,10 +837,16 @@ process call_consensus_MASK_R3 {
     """
     tabix -p vcf ${vcf_fn}
 
+    bcftools +fixref ${vcf_fn} -Oz -o ${chromo}_fixed.vcf.gz -- -f ${reference} -m flip -d
+
+    tabix -p vcf ${chromo}_fixed.vcf.gz
+
     samtools faidx ${reference} ${chromo} | \
-      bcftools consensus ${vcf_fn} -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
+      bcftools consensus ${chromo}_fixed.vcf.gz -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
     """
 }
+
+/* R4: with fixref */
 
 process call_consensus_R4 {
 
@@ -831,8 +863,12 @@ process call_consensus_R4 {
     """
     tabix -p vcf ${vcf_fn}
 
+    bcftools +fixref ${vcf_fn} -Oz -o ${chromo}_fixed.vcf.gz -- -f ${reference} -m flip -d
+
+    tabix -p vcf ${chromo}_fixed.vcf.gz
+
     samtools faidx ${reference} ${chromo} | \
-      bcftools consensus ${vcf_fn} -o ${individual}_${chromo}_cons.fa
+      bcftools consensus ${chromo}_fixed.vcf.gz -o ${individual}_${chromo}_cons.fa
     """
 }
 
@@ -851,8 +887,12 @@ process call_consensus_MASK_R4 {
     """
     tabix -p vcf ${vcf_fn}
 
+    bcftools +fixref ${vcf_fn} -Oz -o ${chromo}_fixed.vcf.gz -- -f ${reference} -m flip -d
+
+    tabix -p vcf ${chromo}_fixed.vcf.gz
+
     samtools faidx ${reference} ${chromo} | \
-      bcftools consensus ${vcf_fn} -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
+      bcftools consensus ${chromo}_fixed.vcf.gz -m ${mask_fn} -o ${individual}_${chromo}_cons.fa
     """
 }
 
@@ -956,21 +996,6 @@ process calc_missing_data_SUMMARY {
 }
 
 /*
-=========================================================
-~ ~ ~ > *  Helper closure * < ~ ~ ~
-=========================================================
-*/
-
-def ref_for_round = { ch ->
-    ch.map { row ->
-        def indiv  = row[0]
-        def chromo = row[3]
-        def ref    = row[4]
-        tuple(indiv, chromo, ref)
-    }
-}
-
-/*
 ============================================
 ~ ~ ~ > *  Pipeline specification  * < ~ ~ ~
 ============================================
@@ -1040,35 +1065,23 @@ workflow {
     def consensus_R1_ch = null
     if (params.indiv_var_call && params.call_consensus) {
 
-        def ref_R1_for_round_ch = ref_for_round(bam_R1_chromo_ref_ch)
-
         if (params.mask_hets || params.mask_cov) {
             def vars_mask_R1_ch = vars_filt_R1_ch.combine(mask_R1_fn_ch, by: [0,1])
-            def vars_mask_ref_R1_ch = vars_mask_R1_ch
-                .combine(ref_R1_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def mask   = left[3]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, mask, ref)
-                }
+            def vars_mask_ref_R1_ch = vars_mask_R1_ch.map { row ->
+                def indiv  = row[0]
+                def chromo = row[1]
+                def vcf    = row[2]
+                def mask   = row[3]
+                tuple(indiv, chromo, vcf, mask, ref_file_obj)
+            }
             consensus_R1_ch = call_consensus_MASK_R1(vars_mask_ref_R1_ch)
         } else {
-            def vcf_ref_R1_ch = vars_filt_R1_ch
-                .combine(ref_R1_for_round_ch, by: [0,1])
-                .map { pair ->
-                    def left  = pair[0]
-                    def right = pair[1]
-                    def indiv  = left[0]
-                    def chromo = left[1]
-                    def vcf    = left[2]
-                    def ref    = right[2]
-                    tuple(indiv, chromo, vcf, ref)
-                }
+            def vcf_ref_R1_ch = vars_filt_R1_ch.map { row ->
+                def indiv  = row[0]
+                def chromo = row[1]
+                def vcf    = row[2]
+                tuple(indiv, chromo, vcf, ref_file_obj)
+            }
             consensus_R1_ch = call_consensus_R1(vcf_ref_R1_ch)
         }
     }
@@ -1101,15 +1114,14 @@ workflow {
         log.info "      ITERATIVE ROUND 2"
         log.info "===================================="
 
+        // combine() output FLAT: [indiv, r1, r2, ref]
         def map_input_R2_ch = reads_ch
             .combine(indiv_ref_R2_ch, by: 0)
-            .map { pair ->
-                def left  = pair[0]
-                def right = pair[1]
-                def indiv = left[0]
-                def r1    = left[1]
-                def r2    = left[2]
-                def ref   = right[1]
+            .map { row ->
+                def indiv = row[0]
+                def r1    = row[1]
+                def r2    = row[2]
+                def ref   = row[3]
                 tuple(indiv, r1, r2, ref)
             }
 
@@ -1117,16 +1129,15 @@ workflow {
 
         def bam_R2_chromo_ch = bam_R2_ch.combine(chromos_ch)
 
+        // combine() FLAT: [indiv, bam, bai, chromo, ref]
         def bam_R2_chromo_ref_ch = bam_R2_chromo_ch
             .combine(indiv_ref_R2_ch, by: 0)
-            .map { pair ->
-                def left  = pair[0]
-                def right = pair[1]
-                def indiv  = left[0]
-                def bam    = left[1]
-                def bai    = left[2]
-                def chromo = left[3]
-                def ref    = right[1]
+            .map { row ->
+                def indiv  = row[0]
+                def bam    = row[1]
+                def bai    = row[2]
+                def chromo = row[3]
+                def ref    = row[4]
                 tuple(indiv, bam, bai, chromo, ref)
             }
 
@@ -1156,33 +1167,29 @@ workflow {
         // Consensus R2
         if (params.indiv_var_call && params.call_consensus) {
 
-            def ref_R2_for_round_ch = ref_for_round(bam_R2_chromo_ref_ch)
-
             if (params.mask_hets || params.mask_cov) {
                 def vars_mask_R2_ch = vars_filt_R2_ch.combine(mask_R2_fn_ch, by: [0,1])
+                // combine() FLAT: [indiv, chromo, vcf, mask, ref]
                 def vars_mask_ref_R2_ch = vars_mask_R2_ch
-                    .combine(ref_R2_for_round_ch, by: [0,1])
-                    .map { pair ->
-                        def left  = pair[0]
-                        def right = pair[1]
-                        def indiv  = left[0]
-                        def chromo = left[1]
-                        def vcf    = left[2]
-                        def mask   = left[3]
-                        def ref    = right[2]
+                    .combine(indiv_ref_R2_ch, by: 0)
+                    .map { row ->
+                        def indiv  = row[0]
+                        def chromo = row[1]
+                        def vcf    = row[2]
+                        def mask   = row[3]
+                        def ref    = row[4]
                         tuple(indiv, chromo, vcf, mask, ref)
                     }
                 consensus_R2_ch = call_consensus_MASK_R2(vars_mask_ref_R2_ch)
             } else {
+                // combine() FLAT: [indiv, chromo, vcf, ref]
                 def vcf_ref_R2_ch = vars_filt_R2_ch
-                    .combine(ref_R2_for_round_ch, by: [0,1])
-                    .map { pair ->
-                        def left  = pair[0]
-                        def right = pair[1]
-                        def indiv  = left[0]
-                        def chromo = left[1]
-                        def vcf    = left[2]
-                        def ref    = right[2]
+                    .combine(indiv_ref_R2_ch, by: 0)
+                    .map { row ->
+                        def indiv  = row[0]
+                        def chromo = row[1]
+                        def vcf    = row[2]
+                        def ref    = row[3]
                         tuple(indiv, chromo, vcf, ref)
                     }
                 consensus_R2_ch = call_consensus_R2(vcf_ref_R2_ch)
@@ -1217,15 +1224,14 @@ workflow {
         log.info "      ITERATIVE ROUND 3"
         log.info "===================================="
 
+        // combine() FLAT: [indiv, r1, r2, ref]
         def map_input_R3_ch = reads_ch
             .combine(indiv_ref_R3_ch, by: 0)
-            .map { pair ->
-                def left  = pair[0]
-                def right = pair[1]
-                def indiv = left[0]
-                def r1    = left[1]
-                def r2    = left[2]
-                def ref   = right[1]
+            .map { row ->
+                def indiv = row[0]
+                def r1    = row[1]
+                def r2    = row[2]
+                def ref   = row[3]
                 tuple(indiv, r1, r2, ref)
             }
 
@@ -1233,16 +1239,15 @@ workflow {
 
         def bam_R3_chromo_ch = bam_R3_ch.combine(chromos_ch)
 
+        // combine() FLAT: [indiv, bam, bai, chromo, ref]
         def bam_R3_chromo_ref_ch = bam_R3_chromo_ch
             .combine(indiv_ref_R3_ch, by: 0)
-            .map { pair ->
-                def left  = pair[0]
-                def right = pair[1]
-                def indiv  = left[0]
-                def bam    = left[1]
-                def bai    = left[2]
-                def chromo = left[3]
-                def ref    = right[1]
+            .map { row ->
+                def indiv  = row[0]
+                def bam    = row[1]
+                def bai    = row[2]
+                def chromo = row[3]
+                def ref    = row[4]
                 tuple(indiv, bam, bai, chromo, ref)
             }
 
@@ -1272,33 +1277,29 @@ workflow {
         // Consensus R3
         if (params.indiv_var_call && params.call_consensus) {
 
-            def ref_R3_for_round_ch = ref_for_round(bam_R3_chromo_ref_ch)
-
             if (params.mask_hets || params.mask_cov) {
                 def vars_mask_R3_ch = vars_filt_R3_ch.combine(mask_R3_fn_ch, by: [0,1])
+                // combine() FLAT: [indiv, chromo, vcf, mask, ref]
                 def vars_mask_ref_R3_ch = vars_mask_R3_ch
-                    .combine(ref_R3_for_round_ch, by: [0,1])
-                    .map { pair ->
-                        def left  = pair[0]
-                        def right = pair[1]
-                        def indiv  = left[0]
-                        def chromo = left[1]
-                        def vcf    = left[2]
-                        def mask   = left[3]
-                        def ref    = right[2]
+                    .combine(indiv_ref_R3_ch, by: 0)
+                    .map { row ->
+                        def indiv  = row[0]
+                        def chromo = row[1]
+                        def vcf    = row[2]
+                        def mask   = row[3]
+                        def ref    = row[4]
                         tuple(indiv, chromo, vcf, mask, ref)
                     }
                 consensus_R3_ch = call_consensus_MASK_R3(vars_mask_ref_R3_ch)
             } else {
+                // combine() FLAT: [indiv, chromo, vcf, ref]
                 def vcf_ref_R3_ch = vars_filt_R3_ch
-                    .combine(ref_R3_for_round_ch, by: [0,1])
-                    .map { pair ->
-                        def left  = pair[0]
-                        def right = pair[1]
-                        def indiv  = left[0]
-                        def chromo = left[1]
-                        def vcf    = left[2]
-                        def ref    = right[2]
+                    .combine(indiv_ref_R3_ch, by: 0)
+                    .map { row ->
+                        def indiv  = row[0]
+                        def chromo = row[1]
+                        def vcf    = row[2]
+                        def ref    = row[3]
                         tuple(indiv, chromo, vcf, ref)
                     }
                 consensus_R3_ch = call_consensus_R3(vcf_ref_R3_ch)
@@ -1332,15 +1333,14 @@ workflow {
         log.info "      ITERATIVE ROUND 4 (final)"
         log.info "===================================="
 
+        // combine() FLAT: [indiv, r1, r2, ref]
         def map_input_R4_ch = reads_ch
             .combine(indiv_ref_R4_ch, by: 0)
-            .map { pair ->
-                def left  = pair[0]
-                def right = pair[1]
-                def indiv = left[0]
-                def r1    = left[1]
-                def r2    = left[2]
-                def ref   = right[1]
+            .map { row ->
+                def indiv = row[0]
+                def r1    = row[1]
+                def r2    = row[2]
+                def ref   = row[3]
                 tuple(indiv, r1, r2, ref)
             }
 
@@ -1348,16 +1348,15 @@ workflow {
 
         def bam_R4_chromo_ch = bam_R4_ch.combine(chromos_ch)
 
+        // combine() FLAT: [indiv, bam, bai, chromo, ref]
         def bam_R4_chromo_ref_ch = bam_R4_chromo_ch
             .combine(indiv_ref_R4_ch, by: 0)
-            .map { pair ->
-                def left  = pair[0]
-                def right = pair[1]
-                def indiv  = left[0]
-                def bam    = left[1]
-                def bai    = left[2]
-                def chromo = left[3]
-                def ref    = right[1]
+            .map { row ->
+                def indiv  = row[0]
+                def bam    = row[1]
+                def bai    = row[2]
+                def chromo = row[3]
+                def ref    = row[4]
                 tuple(indiv, bam, bai, chromo, ref)
             }
 
@@ -1387,33 +1386,29 @@ workflow {
         // Consensus R4 (final)
         if (params.indiv_var_call && params.call_consensus) {
 
-            def ref_R4_for_round_ch = ref_for_round(bam_R4_chromo_ref_ch)
-
             if (params.mask_hets || params.mask_cov) {
                 def vars_mask_R4_ch = vars_filt_R4_ch.combine(mask_R4_fn_ch, by: [0,1])
+                // combine() FLAT: [indiv, chromo, vcf, mask, ref]
                 def vars_mask_ref_R4_ch = vars_mask_R4_ch
-                    .combine(ref_R4_for_round_ch, by: [0,1])
-                    .map { pair ->
-                        def left  = pair[0]
-                        def right = pair[1]
-                        def indiv  = left[0]
-                        def chromo = left[1]
-                        def vcf    = left[2]
-                        def mask   = left[3]
-                        def ref    = right[2]
+                    .combine(indiv_ref_R4_ch, by: 0)
+                    .map { row ->
+                        def indiv  = row[0]
+                        def chromo = row[1]
+                        def vcf    = row[2]
+                        def mask   = row[3]
+                        def ref    = row[4]
                         tuple(indiv, chromo, vcf, mask, ref)
                     }
                 consensus_R4_ch = call_consensus_MASK_R4(vars_mask_ref_R4_ch)
             } else {
+                // combine() FLAT: [indiv, chromo, vcf, ref]
                 def vcf_ref_R4_ch = vars_filt_R4_ch
-                    .combine(ref_R4_for_round_ch, by: [0,1])
-                    .map { pair ->
-                        def left  = pair[0]
-                        def right = pair[1]
-                        def indiv  = left[0]
-                        def chromo = left[1]
-                        def vcf    = left[2]
-                        def ref    = right[2]
+                    .combine(indiv_ref_R4_ch, by: 0)
+                    .map { row ->
+                        def indiv  = row[0]
+                        def chromo = row[1]
+                        def vcf    = row[2]
+                        def ref    = row[3]
                         tuple(indiv, chromo, vcf, ref)
                     }
                 consensus_R4_ch = call_consensus_R4(vcf_ref_R4_ch)
@@ -1448,3 +1443,4 @@ workflow {
         calc_missing_data_INDIV.out.collect() | calc_missing_data_SUMMARY
     }
 }
+
