@@ -267,7 +267,7 @@ process cov_summary_ALL {
 process call_variants_CHROMO_R1 {
 
     tag "Variant calling per chromosome (round1)"
-    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
     label 'Endurance'
 
     input:
@@ -288,7 +288,7 @@ process call_variants_CHROMO_R1 {
 process call_variants_CHROMO_R2 {
 
     tag "Variant calling per chromosome (round2)"
-    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
     label 'Endurance'
 
     input:
@@ -309,7 +309,7 @@ process call_variants_CHROMO_R2 {
 process call_variants_CHROMO_R3 {
 
     tag "Variant calling per chromosome (round3)"
-    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
     label 'Endurance'
 
     input:
@@ -330,7 +330,7 @@ process call_variants_CHROMO_R3 {
 process call_variants_CHROMO_R4 {
 
     tag "Variant calling per chromosome (round4)"
-    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
     label 'Endurance'
 
     input:
@@ -355,7 +355,7 @@ process call_variants_CHROMO_R4 {
 process remove_indels_R1 {
 
     tag "Remove indels (round1)"
-    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -374,7 +374,7 @@ process remove_indels_R1 {
 process remove_indels_R2 {
 
     tag "Remove indels (round2)"
-    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -393,7 +393,7 @@ process remove_indels_R2 {
 process remove_indels_R3 {
 
     tag "Remove indels (round3)"
-    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -412,7 +412,7 @@ process remove_indels_R3 {
 process remove_indels_R4 {
 
     tag "Remove indels (round4)"
-    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -435,7 +435,7 @@ process remove_indels_R4 {
 process mask_hets_R1 {
 
     tag "Generate mask for het sites (round1)"
-    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -454,7 +454,7 @@ process mask_hets_R1 {
 process mask_hets_R2 {
 
     tag "Generate mask for het sites (round2)"
-    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -473,7 +473,7 @@ process mask_hets_R2 {
 process mask_hets_R3 {
 
     tag "Generate mask for het sites (round3)"
-    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -492,7 +492,7 @@ process mask_hets_R3 {
 process mask_hets_R4 {
 
     tag "Generate mask for het sites (round4)"
-    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -515,7 +515,7 @@ process mask_hets_R4 {
 process mask_cov_R1 {
 
     tag "Generate mask for low or excess coverage sites (round1)"
-    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -533,7 +533,7 @@ process mask_cov_R1 {
 process mask_cov_R2 {
 
     tag "Generate mask for low or excess coverage sites (round2)"
-    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -551,7 +551,7 @@ process mask_cov_R2 {
 process mask_cov_R3 {
 
     tag "Generate mask for low or excess coverage sites (round3)"
-    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -569,7 +569,7 @@ process mask_cov_R3 {
 process mask_cov_R4 {
 
     tag "Generate mask for low or excess coverage sites (round4)"
-    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -591,7 +591,7 @@ process mask_cov_R4 {
 process mask_merge_R1 {
 
     tag "Merge low cov and het mask files (round1)"
-    publishDir "${params.outputdir}/01.variants/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -617,7 +617,7 @@ process mask_merge_R1 {
 process mask_merge_R2 {
 
     tag "Merge low cov and het mask files (round2)"
-    publishDir "${params.outputdir}/01.variants/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -643,7 +643,7 @@ process mask_merge_R2 {
 process mask_merge_R3 {
 
     tag "Merge low cov and het mask files (round3)"
-    publishDir "${params.outputdir}/01.variants/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -669,7 +669,7 @@ process mask_merge_R3 {
 process mask_merge_R4 {
 
     tag "Merge low cov and het mask files (round4)"
-    publishDir "${params.outputdir}/01.variants/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -701,7 +701,7 @@ process mask_merge_R4 {
 process call_consensus_R1 {
 
     tag "Call consensus without masking (round1)"
-    publishDir "${params.outputdir}/02.consensus/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round1/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -721,7 +721,7 @@ process call_consensus_R1 {
 process call_consensus_MASK_R1 {
 
     tag "Call consensus with masking (round1)"
-    publishDir "${params.outputdir}/02.consensus/round1", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round1/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -743,7 +743,7 @@ process call_consensus_MASK_R1 {
 process call_consensus_R2 {
 
     tag "Call consensus without masking (round2)"
-    publishDir "${params.outputdir}/02.consensus/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round2/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -771,7 +771,7 @@ process call_consensus_R2 {
 process call_consensus_MASK_R2 {
 
     tag "Call consensus with masking (round2)"
-    publishDir "${params.outputdir}/02.consensus/round2", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round2/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -801,7 +801,7 @@ process call_consensus_MASK_R2 {
 process call_consensus_R3 {
 
     tag "Call consensus without masking (round3)"
-    publishDir "${params.outputdir}/02.consensus/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round3/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -825,7 +825,7 @@ process call_consensus_R3 {
 process call_consensus_MASK_R3 {
 
     tag "Call consensus with masking (round3)"
-    publishDir "${params.outputdir}/02.consensus/round3", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round3/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -851,7 +851,7 @@ process call_consensus_MASK_R3 {
 process call_consensus_R4 {
 
     tag "Call consensus without masking (round4)"
-    publishDir "${params.outputdir}/02.consensus/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round4/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -875,7 +875,7 @@ process call_consensus_R4 {
 process call_consensus_MASK_R4 {
 
     tag "Call consensus with masking (round4)"
-    publishDir "${params.outputdir}/02.consensus/round4", mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round4/${individual}" }, mode:'copy'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -1114,7 +1114,6 @@ workflow {
         log.info "      ITERATIVE ROUND 2"
         log.info "===================================="
 
-        // combine() output FLAT: [indiv, r1, r2, ref]
         def map_input_R2_ch = reads_ch
             .combine(indiv_ref_R2_ch, by: 0)
             .map { row ->
@@ -1129,7 +1128,6 @@ workflow {
 
         def bam_R2_chromo_ch = bam_R2_ch.combine(chromos_ch)
 
-        // combine() FLAT: [indiv, bam, bai, chromo, ref]
         def bam_R2_chromo_ref_ch = bam_R2_chromo_ch
             .combine(indiv_ref_R2_ch, by: 0)
             .map { row ->
@@ -1169,7 +1167,6 @@ workflow {
 
             if (params.mask_hets || params.mask_cov) {
                 def vars_mask_R2_ch = vars_filt_R2_ch.combine(mask_R2_fn_ch, by: [0,1])
-                // combine() FLAT: [indiv, chromo, vcf, mask, ref]
                 def vars_mask_ref_R2_ch = vars_mask_R2_ch
                     .combine(indiv_ref_R2_ch, by: 0)
                     .map { row ->
@@ -1182,7 +1179,6 @@ workflow {
                     }
                 consensus_R2_ch = call_consensus_MASK_R2(vars_mask_ref_R2_ch)
             } else {
-                // combine() FLAT: [indiv, chromo, vcf, ref]
                 def vcf_ref_R2_ch = vars_filt_R2_ch
                     .combine(indiv_ref_R2_ch, by: 0)
                     .map { row ->
@@ -1224,7 +1220,6 @@ workflow {
         log.info "      ITERATIVE ROUND 3"
         log.info "===================================="
 
-        // combine() FLAT: [indiv, r1, r2, ref]
         def map_input_R3_ch = reads_ch
             .combine(indiv_ref_R3_ch, by: 0)
             .map { row ->
@@ -1239,7 +1234,6 @@ workflow {
 
         def bam_R3_chromo_ch = bam_R3_ch.combine(chromos_ch)
 
-        // combine() FLAT: [indiv, bam, bai, chromo, ref]
         def bam_R3_chromo_ref_ch = bam_R3_chromo_ch
             .combine(indiv_ref_R3_ch, by: 0)
             .map { row ->
@@ -1279,7 +1273,6 @@ workflow {
 
             if (params.mask_hets || params.mask_cov) {
                 def vars_mask_R3_ch = vars_filt_R3_ch.combine(mask_R3_fn_ch, by: [0,1])
-                // combine() FLAT: [indiv, chromo, vcf, mask, ref]
                 def vars_mask_ref_R3_ch = vars_mask_R3_ch
                     .combine(indiv_ref_R3_ch, by: 0)
                     .map { row ->
@@ -1292,7 +1285,6 @@ workflow {
                     }
                 consensus_R3_ch = call_consensus_MASK_R3(vars_mask_ref_R3_ch)
             } else {
-                // combine() FLAT: [indiv, chromo, vcf, ref]
                 def vcf_ref_R3_ch = vars_filt_R3_ch
                     .combine(indiv_ref_R3_ch, by: 0)
                     .map { row ->
@@ -1333,7 +1325,6 @@ workflow {
         log.info "      ITERATIVE ROUND 4 (final)"
         log.info "===================================="
 
-        // combine() FLAT: [indiv, r1, r2, ref]
         def map_input_R4_ch = reads_ch
             .combine(indiv_ref_R4_ch, by: 0)
             .map { row ->
@@ -1348,7 +1339,6 @@ workflow {
 
         def bam_R4_chromo_ch = bam_R4_ch.combine(chromos_ch)
 
-        // combine() FLAT: [indiv, bam, bai, chromo, ref]
         def bam_R4_chromo_ref_ch = bam_R4_chromo_ch
             .combine(indiv_ref_R4_ch, by: 0)
             .map { row ->
@@ -1388,7 +1378,6 @@ workflow {
 
             if (params.mask_hets || params.mask_cov) {
                 def vars_mask_R4_ch = vars_filt_R4_ch.combine(mask_R4_fn_ch, by: [0,1])
-                // combine() FLAT: [indiv, chromo, vcf, mask, ref]
                 def vars_mask_ref_R4_ch = vars_mask_R4_ch
                     .combine(indiv_ref_R4_ch, by: 0)
                     .map { row ->
@@ -1401,7 +1390,6 @@ workflow {
                     }
                 consensus_R4_ch = call_consensus_MASK_R4(vars_mask_ref_R4_ch)
             } else {
-                // combine() FLAT: [indiv, chromo, vcf, ref]
                 def vcf_ref_R4_ch = vars_filt_R4_ch
                     .combine(indiv_ref_R4_ch, by: 0)
                     .map { row ->
@@ -1443,4 +1431,3 @@ workflow {
         calc_missing_data_INDIV.out.collect() | calc_missing_data_SUMMARY
     }
 }
-
