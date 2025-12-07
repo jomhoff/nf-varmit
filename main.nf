@@ -101,13 +101,13 @@ process index_bam {
 }
 
 /*
- * BWA mapping processes (per round)
+ * BWA-MEM2 mapping processes (per round)
  */
 
 process bwa_map_R1 {
 
     label 'Mapping'
-    tag "BWA-MEM mapping (round1)"
+    tag "BWA-MEM2 mapping (round1)"
     publishDir "${params.outputdir}/00.bam/round1", mode: 'copy'
 
     input:
@@ -119,9 +119,9 @@ process bwa_map_R1 {
     script:
     """
     samtools faidx ${reference}
-    bwa index ${reference}
+    bwa-mem2 index ${reference}
 
-    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+    bwa-mem2 mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
       samtools sort -@ ${task.cpus} -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
@@ -131,7 +131,7 @@ process bwa_map_R1 {
 process bwa_map_R2 {
 
     label 'Mapping'
-    tag "BWA-MEM mapping (round2)"
+    tag "BWA-MEM2 mapping (round2)"
     publishDir "${params.outputdir}/00.bam/round2", mode: 'copy'
 
     input:
@@ -143,9 +143,9 @@ process bwa_map_R2 {
     script:
     """
     samtools faidx ${reference}
-    bwa index ${reference}
+    bwa-mem2 index ${reference}
 
-    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+    bwa-mem2 mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
       samtools sort -@ ${task.cpus} -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
@@ -155,7 +155,7 @@ process bwa_map_R2 {
 process bwa_map_R3 {
 
     label 'Mapping'
-    tag "BWA-MEM mapping (round3)"
+    tag "BWA-MEM2 mapping (round3)"
     publishDir "${params.outputdir}/00.bam/round3", mode: 'copy'
 
     input:
@@ -167,9 +167,9 @@ process bwa_map_R3 {
     script:
     """
     samtools faidx ${reference}
-    bwa index ${reference}
+    bwa-mem2 index ${reference}
 
-    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+    bwa-mem2 mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
       samtools sort -@ ${task.cpus} -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
@@ -179,7 +179,7 @@ process bwa_map_R3 {
 process bwa_map_R4 {
 
     label 'Mapping'
-    tag "BWA-MEM mapping (round4)"
+    tag "BWA-MEM2 mapping (round4)"
     publishDir "${params.outputdir}/00.bam/round4", mode: 'copy'
 
     input:
@@ -191,9 +191,9 @@ process bwa_map_R4 {
     script:
     """
     samtools faidx ${reference}
-    bwa index ${reference}
+    bwa-mem2 index ${reference}
 
-    bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
+    bwa-mem2 mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
       samtools sort -@ ${task.cpus} -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
