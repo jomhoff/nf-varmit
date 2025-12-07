@@ -82,27 +82,6 @@ if( params.n_rounds < 1 || params.n_rounds > 4 ) {
 ===============================
 ~ ~ ~ > *  Processes  * < ~ ~ ~
 ===============================
-*/
-
-process index_bam {
-
-    tag "Index bam file"
-
-    input:
-    tuple val(indiv), path(indiv_bam)
-
-    output:
-    tuple val(indiv), path(indiv_bam), path("${indiv_bam}.bai")
-
-    script:
-    """
-    samtools index -@ ${task.cpus} ${indiv_bam}
-    """
-}
-
-/*
- * BWA mapping processes (per round)
- */
 
 process bwa_map_R1 {
 
@@ -118,8 +97,12 @@ process bwa_map_R1 {
 
     script:
     """
+    # Ensure reference is indexed in this work dir
+    samtools faidx ${reference}
+    bwa index ${reference}
+
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 2G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -139,8 +122,11 @@ process bwa_map_R2 {
 
     script:
     """
+    samtools faidx ${reference}
+    bwa index ${reference}
+
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 2G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -160,8 +146,11 @@ process bwa_map_R3 {
 
     script:
     """
+    samtools faidx ${reference}
+    bwa index ${reference}
+
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 2G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -181,8 +170,11 @@ process bwa_map_R4 {
 
     script:
     """
+    samtools faidx ${reference}
+    bwa index ${reference}
+
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 2G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
