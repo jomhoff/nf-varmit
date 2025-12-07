@@ -108,7 +108,7 @@ process bwa_map_R1 {
 
     label 'Mapping'
     tag "BWA-MEM mapping (round1)"
-    publishDir "${params.outputdir}/00.bam/round1", mode: 'copy'
+    publishDir "${params.outputdir}/00.bam/round1", mode: 'move'
 
     input:
     tuple val(individual), path(read1), path(read2), path(reference)
@@ -118,11 +118,8 @@ process bwa_map_R1 {
 
     script:
     """
-    samtools faidx ${reference}
-    bwa index ${reference}
-
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -132,7 +129,7 @@ process bwa_map_R2 {
 
     label 'Mapping'
     tag "BWA-MEM mapping (round2)"
-    publishDir "${params.outputdir}/00.bam/round2", mode: 'copy'
+    publishDir "${params.outputdir}/00.bam/round2", mode: 'move'
 
     input:
     tuple val(individual), path(read1), path(read2), path(reference)
@@ -142,11 +139,8 @@ process bwa_map_R2 {
 
     script:
     """
-    samtools faidx ${reference}
-    bwa index ${reference}
-
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -156,7 +150,7 @@ process bwa_map_R3 {
 
     label 'Mapping'
     tag "BWA-MEM mapping (round3)"
-    publishDir "${params.outputdir}/00.bam/round3", mode: 'copy'
+    publishDir "${params.outputdir}/00.bam/round3", mode: 'move'
 
     input:
     tuple val(individual), path(read1), path(read2), path(reference)
@@ -166,11 +160,8 @@ process bwa_map_R3 {
 
     script:
     """
-    samtools faidx ${reference}
-    bwa index ${reference}
-
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -180,7 +171,7 @@ process bwa_map_R4 {
 
     label 'Mapping'
     tag "BWA-MEM mapping (round4)"
-    publishDir "${params.outputdir}/00.bam/round4", mode: 'copy'
+    publishDir "${params.outputdir}/00.bam/round4", mode: 'move'
 
     input:
     tuple val(individual), path(read1), path(read2), path(reference)
@@ -190,11 +181,8 @@ process bwa_map_R4 {
 
     script:
     """
-    samtools faidx ${reference}
-    bwa index ${reference}
-
     bwa mem -t ${task.cpus} ${reference} ${read1} ${read2} | \
-      samtools sort -@ ${task.cpus} -o ${individual}.bam
+      samtools sort -@ ${task.cpus} -m 20G -T ${individual}.sort_tmp -o ${individual}.bam
 
     samtools index -@ ${task.cpus} ${individual}.bam
     """
@@ -224,7 +212,7 @@ process cov_estimate {
 process cov_summary_INDIV {
 
     tag "Coverage summary per individual"
-    publishDir "${params.outputdir}/00.coverage", mode:'copy'
+    publishDir "${params.outputdir}/00.coverage", mode:'move'
 
     input:
     tuple val(indiv), path(chromo_cov_tsv_list)
@@ -243,7 +231,7 @@ process cov_summary_INDIV {
 process cov_summary_ALL {
 
     tag "Coverage summary for all indivs"
-    publishDir "${params.outputdir}/00.coverage", mode:'copy'
+    publishDir "${params.outputdir}/00.coverage", mode:'move'
 
     input:
     path(indivs_cov_tsv_list)
@@ -267,7 +255,7 @@ process cov_summary_ALL {
 process call_variants_CHROMO_R1 {
 
     tag "Variant calling per chromosome (round1)"
-    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'move'
     label 'Endurance'
 
     input:
@@ -288,7 +276,7 @@ process call_variants_CHROMO_R1 {
 process call_variants_CHROMO_R2 {
 
     tag "Variant calling per chromosome (round2)"
-    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'move'
     label 'Endurance'
 
     input:
@@ -309,7 +297,7 @@ process call_variants_CHROMO_R2 {
 process call_variants_CHROMO_R3 {
 
     tag "Variant calling per chromosome (round3)"
-    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'move'
     label 'Endurance'
 
     input:
@@ -330,7 +318,7 @@ process call_variants_CHROMO_R3 {
 process call_variants_CHROMO_R4 {
 
     tag "Variant calling per chromosome (round4)"
-    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'move'
     label 'Endurance'
 
     input:
@@ -355,7 +343,7 @@ process call_variants_CHROMO_R4 {
 process remove_indels_R1 {
 
     tag "Remove indels (round1)"
-    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -374,7 +362,7 @@ process remove_indels_R1 {
 process remove_indels_R2 {
 
     tag "Remove indels (round2)"
-    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -393,7 +381,7 @@ process remove_indels_R2 {
 process remove_indels_R3 {
 
     tag "Remove indels (round3)"
-    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -412,7 +400,7 @@ process remove_indels_R3 {
 process remove_indels_R4 {
 
     tag "Remove indels (round4)"
-    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -435,7 +423,7 @@ process remove_indels_R4 {
 process mask_hets_R1 {
 
     tag "Generate mask for het sites (round1)"
-    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -454,7 +442,7 @@ process mask_hets_R1 {
 process mask_hets_R2 {
 
     tag "Generate mask for het sites (round2)"
-    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -473,7 +461,7 @@ process mask_hets_R2 {
 process mask_hets_R3 {
 
     tag "Generate mask for het sites (round3)"
-    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -492,7 +480,7 @@ process mask_hets_R3 {
 process mask_hets_R4 {
 
     tag "Generate mask for het sites (round4)"
-    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(var_vcf)
@@ -515,7 +503,7 @@ process mask_hets_R4 {
 process mask_cov_R1 {
 
     tag "Generate mask for low or excess coverage sites (round1)"
-    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -533,7 +521,7 @@ process mask_cov_R1 {
 process mask_cov_R2 {
 
     tag "Generate mask for low or excess coverage sites (round2)"
-    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -551,7 +539,7 @@ process mask_cov_R2 {
 process mask_cov_R3 {
 
     tag "Generate mask for low or excess coverage sites (round3)"
-    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -569,7 +557,7 @@ process mask_cov_R3 {
 process mask_cov_R4 {
 
     tag "Generate mask for low or excess coverage sites (round4)"
-    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), path(indiv_bam), path(indiv_bam_bai), val(chromo), path(reference)
@@ -591,7 +579,7 @@ process mask_cov_R4 {
 process mask_merge_R1 {
 
     tag "Merge low cov and het mask files (round1)"
-    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round1/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -617,7 +605,7 @@ process mask_merge_R1 {
 process mask_merge_R2 {
 
     tag "Merge low cov and het mask files (round2)"
-    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round2/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -643,7 +631,7 @@ process mask_merge_R2 {
 process mask_merge_R3 {
 
     tag "Merge low cov and het mask files (round3)"
-    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round3/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -669,7 +657,7 @@ process mask_merge_R3 {
 process mask_merge_R4 {
 
     tag "Merge low cov and het mask files (round4)"
-    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/01.variants/round4/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(het_bed), path(cov_bed)
@@ -701,7 +689,7 @@ process mask_merge_R4 {
 process call_consensus_R1 {
 
     tag "Call consensus without masking (round1)"
-    publishDir path: { "${params.outputdir}/02.consensus/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round1/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -721,7 +709,7 @@ process call_consensus_R1 {
 process call_consensus_MASK_R1 {
 
     tag "Call consensus with masking (round1)"
-    publishDir path: { "${params.outputdir}/02.consensus/round1/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round1/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -743,7 +731,7 @@ process call_consensus_MASK_R1 {
 process call_consensus_R2 {
 
     tag "Call consensus without masking (round2)"
-    publishDir path: { "${params.outputdir}/02.consensus/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round2/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -771,7 +759,7 @@ process call_consensus_R2 {
 process call_consensus_MASK_R2 {
 
     tag "Call consensus with masking (round2)"
-    publishDir path: { "${params.outputdir}/02.consensus/round2/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round2/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -801,7 +789,7 @@ process call_consensus_MASK_R2 {
 process call_consensus_R3 {
 
     tag "Call consensus without masking (round3)"
-    publishDir path: { "${params.outputdir}/02.consensus/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round3/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -825,7 +813,7 @@ process call_consensus_R3 {
 process call_consensus_MASK_R3 {
 
     tag "Call consensus with masking (round3)"
-    publishDir path: { "${params.outputdir}/02.consensus/round3/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round3/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -851,7 +839,7 @@ process call_consensus_MASK_R3 {
 process call_consensus_R4 {
 
     tag "Call consensus without masking (round4)"
-    publishDir path: { "${params.outputdir}/02.consensus/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round4/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(reference)
@@ -875,7 +863,7 @@ process call_consensus_R4 {
 process call_consensus_MASK_R4 {
 
     tag "Call consensus with masking (round4)"
-    publishDir path: { "${params.outputdir}/02.consensus/round4/${individual}" }, mode:'copy'
+    publishDir path: { "${params.outputdir}/02.consensus/round4/${individual}" }, mode:'move'
 
     input:
     tuple val(individual), val(chromo), path(vcf_fn), path(mask_fn), path(reference)
@@ -903,7 +891,7 @@ process call_consensus_MASK_R4 {
 process build_ref_from_consensus_R1 {
 
     tag "Build per-individual reference for next round (round1→2)"
-    publishDir "${params.outputdir}/02.consensus_refs/round1", mode:'copy'
+    publishDir "${params.outputdir}/02.consensus_refs/round1", mode:'move'
 
     input:
     tuple val(individual), val(round), path(cons_list)
@@ -920,7 +908,7 @@ process build_ref_from_consensus_R1 {
 process build_ref_from_consensus_R2 {
 
     tag "Build per-individual reference for next round (round2→3)"
-    publishDir "${params.outputdir}/02.consensus_refs/round2", mode:'copy'
+    publishDir "${params.outputdir}/02.consensus_refs/round2", mode:'move'
 
     input:
     tuple val(individual), val(round), path(cons_list)
@@ -937,7 +925,7 @@ process build_ref_from_consensus_R2 {
 process build_ref_from_consensus_R3 {
 
     tag "Build per-individual reference for next round (round3→4)"
-    publishDir "${params.outputdir}/02.consensus_refs/round3", mode:'copy'
+    publishDir "${params.outputdir}/02.consensus_refs/round3", mode:'move'
 
     input:
     tuple val(individual), val(round), path(cons_list)
@@ -958,7 +946,7 @@ process build_ref_from_consensus_R3 {
 process calc_missing_data_INDIV {
 
     tag "Calculate missing data per individual and chromosome"
-    publishDir "${params.outputdir}/02.consensus/final", mode:'copy'
+    publishDir "${params.outputdir}/02.consensus/final", mode:'move'
 
     input:
     tuple val(individual), path(cons_fn_list)
@@ -977,7 +965,7 @@ process calc_missing_data_INDIV {
 process calc_missing_data_SUMMARY {
 
     tag "Calculate missing data across all individuals"
-    publishDir "${params.outputdir}/02.consensus/final", mode:'copy'
+    publishDir "${params.outputdir}/02.consensus/final", mode:'move'
 
     input:
     path(cons_fn_list)
