@@ -83,6 +83,10 @@ if( params.n_rounds < 1 || params.n_rounds > 4 ) {
 ~ ~ ~ > *  Processes  * < ~ ~ ~
 ===============================
 
+/*
+ * BWA mapping processes (per round)
+ */
+
 process bwa_map_R1 {
 
     label 'Mapping'
