@@ -898,6 +898,7 @@ process call_consensus_MASK_R4 {
 
 /*
  * Build per-individual references from consensus (rounds 1–3)
+ * NOTE: cleaned to A/C/G/T/N only
  */
 
 process build_ref_from_consensus_R1 {
@@ -913,7 +914,16 @@ process build_ref_from_consensus_R1 {
 
     script:
     """
-    cat ${cons_list} > ${individual}_round${round}_ref.fa
+    # Concatenate per-chromosome consensus FASTAs
+    cat ${cons_list} > ${individual}_round${round}_ref.tmp.fa
+
+    # Clean reference: convert any non-ACGT character to N
+    awk '
+      /^>/ { print; next }
+      { gsub(/[^ACGTacgt]/, "N"); print }
+    ' ${individual}_round${round}_ref.tmp.fa > ${individual}_round${round}_ref.fa
+
+    rm ${individual}_round${round}_ref.tmp.fa
     """
 }
 
@@ -930,7 +940,14 @@ process build_ref_from_consensus_R2 {
 
     script:
     """
-    cat ${cons_list} > ${individual}_round${round}_ref.fa
+    cat ${cons_list} > ${individual}_round${round}_ref.tmp.fa
+
+    awk '
+      /^>/ { print; next }
+      { gsub(/[^ACGTacgt]/, "N"); print }
+    ' ${individual}_round${round}_ref.tmp.fa > ${individual}_round${round}_ref.fa
+
+    rm ${individual}_round${round}_ref.tmp.fa
     """
 }
 
@@ -947,7 +964,14 @@ process build_ref_from_consensus_R3 {
 
     script:
     """
-    cat ${cons_list} > ${individual}_round${round}_ref.fa
+    cat ${cons_list} > ${individual}_round${round}_ref.tmp.fa
+
+    awk '
+      /^>/ { print; next }
+      { gsub(/[^ACGTacgt]/, "N"); print }
+    ' ${individual}_round${round}_ref.tmp.fa > ${individual}_round${round}_ref.fa
+
+    rm ${individual}_round${round}_ref.tmp.fa
     """
 }
 
